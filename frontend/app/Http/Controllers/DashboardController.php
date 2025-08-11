@@ -28,6 +28,11 @@ class DashboardController extends Controller
             'webhook_url' => 'nullable|url',
         ]);
 
+        if (!Schema::hasTable('whatsapp_sessions')) {
+            return redirect()->route('dashboard')
+                ->withErrors('WhatsApp sessions table does not exist. Please run migrations.');
+        }
+
         $session = Auth::user()->whatsappSessions()->create([
             'session_name' => $request->session_name,
             'webhook_url' => $request->webhook_url,
