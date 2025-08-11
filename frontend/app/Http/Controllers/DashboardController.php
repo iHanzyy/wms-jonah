@@ -6,6 +6,7 @@ use App\Models\WhatsAppSession;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 
 class DashboardController extends Controller
 {
@@ -13,7 +14,7 @@ class DashboardController extends Controller
     {
         $sessions = collect();
 
-        if (Auth::check()) {
+        if (Schema::hasTable('whatsapp_sessions') && Auth::check()) {
             $sessions = Auth::user()->whatsappSessions()->latest()->get();
         }
 
@@ -26,6 +27,10 @@ class DashboardController extends Controller
             'session_name' => 'required|string|max:255',
             'webhook_url' => 'nullable|url',
         ]);
+
+        if (!Schema::hasTable('whatsapp_sessions')) {
+            return redirect()->route('dashboard')->with('error', 'Session storage is not available. Please run migrations.');
+        }
 
         $session = Auth::user()->whatsappSessions()->create([
             'session_name' => $request->session_name,
