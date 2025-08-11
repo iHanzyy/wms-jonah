@@ -6,13 +6,18 @@ use App\Models\WhatsAppSession;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 
 class DashboardController extends Controller
 {
     public function index()
     {
-        $sessions = Auth::user()->whatsappSessions()->latest()->get();
-        
+        $sessions = collect();
+
+        if (Schema::hasTable('whatsapp_sessions') && Auth::check()) {
+            $sessions = Auth::user()->whatsappSessions()->latest()->get();
+        }
+
         return view('dashboard', compact('sessions'));
     }
 
