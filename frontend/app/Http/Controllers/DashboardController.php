@@ -6,7 +6,6 @@ use App\Models\WhatsAppSession;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Schema;
 
 class DashboardController extends Controller
 {
@@ -14,7 +13,7 @@ class DashboardController extends Controller
     {
         $sessions = collect();
 
-        if (Schema::hasTable('whatsapp_sessions') && Auth::check()) {
+        if (Auth::check()) {
             $sessions = Auth::user()->whatsappSessions()->latest()->get();
         }
 
@@ -27,11 +26,6 @@ class DashboardController extends Controller
             'session_name' => 'required|string|max:255',
             'webhook_url' => 'nullable|url',
         ]);
-
-        if (!Schema::hasTable('whatsapp_sessions')) {
-            return redirect()->route('dashboard')
-                ->withErrors('WhatsApp sessions table does not exist. Please run migrations.');
-        }
 
         $session = Auth::user()->whatsappSessions()->create([
             'session_name' => $request->session_name,
@@ -49,6 +43,12 @@ class DashboardController extends Controller
 
             if ($response->successful()) {
                 $session->update(['status' => 'connecting']);
+
+                try {
+                    Http::post(config('app.backend_url') . '/api/sessions/' . $session->id . '/start');
+                } catch (\Exception $e) {
+                    logger()->error('Failed to start session: ' . $e->getMessage());
+                }
             }
         } catch (\Exception $e) {
             // Log error but don't fail the creation
