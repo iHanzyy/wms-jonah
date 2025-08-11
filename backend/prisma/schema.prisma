@@ -1,0 +1,73 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  sessions  Session[]
+
+  @@map("users")
+}
+
+model Session {
+  id          Int       @id @default(autoincrement())
+  userId      Int       @map("user_id")
+  sessionName String    @map("session_name")
+  webhookUrl  String?   @map("webhook_url")
+  status      String    @default("disconnected")
+  qrCode      String?   @map("qr_code")
+  sessionData Json?     @map("session_data")
+  lastSeen    DateTime? @map("last_seen")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages    Message[]
+  webhooks    Webhook[]
+
+  @@unique([userId, sessionName])
+  @@map("sessions")
+}
+
+model Message {
+  id          Int      @id @default(autoincrement())
+  sessionId   Int      @map("session_id")
+  messageId   String   @map("message_id")
+  fromNumber  String   @map("from_number")
+  toNumber    String?  @map("to_number")
+  contactName String?  @map("contact_name")
+  groupId     String?  @map("group_id")
+  messageType String   @map("message_type")
+  content     String
+  timestamp   DateTime
+  webhookSent Boolean  @default(false) @map("webhook_sent")
+  createdAt   DateTime @default(now()) @map("created_at")
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
+
+model Webhook {
+  id        Int      @id @default(autoincrement())
+  sessionId Int      @map("session_id")
+  url       String
+  secret    String?
+  events    String[]
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("webhooks")
+}
