@@ -44,6 +44,7 @@ class DashboardController extends Controller
                 'session_id' => $session->id,
                 'session_name' => $session->session_name,
                 'webhook_url' => $session->webhook_url,
+                'user_id' => Auth::id(),
             ]);
 
             if ($response->successful()) {
