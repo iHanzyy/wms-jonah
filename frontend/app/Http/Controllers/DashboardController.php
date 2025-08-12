@@ -114,7 +114,9 @@ class DashboardController extends Controller
             $response = Http::get(config('app.backend_url') . '/api/sessions/' . $session->id . '/qr');
             
             if ($response->successful()) {
-                $data = $response->json();
+                $payload = $response->json();
+                $data = $payload['data'] ?? [];
+
                 return response()->json([
                     'qr_code' => $data['qr_code'] ?? null,
                     'status' => $data['status'] ?? 'disconnected',
