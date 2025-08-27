@@ -64,17 +64,17 @@ async function processIncomingMessage(sessionId, msg, isMention = false) {
     logger.info(`Message ${savedMessage.id} saved for session ${sessionId}`);
 
     // Process media if present
-    let mediaUrl = null;
+    let media = null;
     if (msg.hasMedia) {
       try {
-        mediaUrl = await processMessageMedia(msg, sessionId, savedMessage.id);
+        media = await processMessageMedia(msg, sessionId, savedMessage.id);
       } catch (error) {
         logger.error(`Error processing media for message ${savedMessage.id}:`, error);
       }
     }
 
     // Send to webhook
-    await sendToWebhook(session, savedMessage, mediaUrl);
+    await sendToWebhook(session, savedMessage, media);
 
     return savedMessage;
   } catch (error) {
@@ -88,7 +88,7 @@ async function processIncomingMessage(sessionId, msg, isMention = false) {
  * @param {object} msg - The WhatsApp message object
  * @param {number} sessionId - The session ID
  * @param {number} messageId - The message ID
- * @returns {Promise<string>} - The URL of the processed media
+ * @returns {Promise<object>} - Information about the processed media
  */
 async function processMessageMedia(msg, sessionId, messageId) {
   try {
@@ -118,24 +118,29 @@ async function processMessageMedia(msg, sessionId, messageId) {
     const filename = `${messageId}.${extension}`;
     const filePath = path.join(mediaDir, filename);
 
-    // Save media to file
+    // Save media to file and capture base64 data
     const mediaBuffer = Buffer.from(media.data, 'base64');
-    
-    // Compress image if it's an image
+    let base64Data;
+
     if (media.mimetype.startsWith('image/')) {
-      await sharp(mediaBuffer)
+      const processedBuffer = await sharp(mediaBuffer)
         .resize(800) // Resize to max width of 800px
         .jpeg({ quality: 80 }) // Convert to JPEG with 80% quality
-        .toFile(filePath);
+        .toBuffer();
+      fs.writeFileSync(filePath, processedBuffer);
+      base64Data = processedBuffer.toString('base64');
     } else {
-      // Save other media types as is
       fs.writeFileSync(filePath, mediaBuffer);
+      base64Data = mediaBuffer.toString('base64');
     }
 
     logger.info(`Media saved for message ${messageId} at ${filePath}`);
-    
-    // Return relative path that can be used in API responses
-    return `/media/session-${sessionId}/${filename}`;
+
+    return {
+      url: `/media/session-${sessionId}/${filename}`,
+      data: base64Data,
+      mimetype: media.mimetype
+    };
   } catch (error) {
     logger.error(`Error processing media for message ${messageId}:`, error);
     throw error;
@@ -182,25 +187,34 @@ function extractReplies(data) {
  * Send message to webhook
  * @param {object} session - The session object
  * @param {object} message - The message object
- * @param {string} mediaUrl - The URL of the media (if any)
+ * @param {object} media - Media information (if any)
  */
-async function sendToWebhook(session, message, mediaUrl = null) {
+async function sendToWebhook(session, message, media = null) {
   try {
     // Prepare webhook payload
+    const messagePayload = {
+      id: message.messageId,
+      from: message.fromNumber,
+      to: message.toNumber,
+      contactName: message.contactName,
+      groupId: message.groupId,
+      type: message.messageType,
+      content: message.content,
+      timestamp: message.timestamp
+    };
+
+    if (media) {
+      messagePayload.mediaUrl = media.url;
+      if (media.mimetype && media.mimetype.startsWith('image/')) {
+        messagePayload.mediaData = media.data;
+      }
+      messagePayload.mediaMimeType = media.mimetype;
+    }
+
     const payload = {
       sessionId: session.id,
       sessionName: session.sessionName,
-      message: {
-        id: message.messageId,
-        from: message.fromNumber,
-        to: message.toNumber,
-        contactName: message.contactName,
-        groupId: message.groupId,
-        type: message.messageType,
-        content: message.content,
-        timestamp: message.timestamp,
-        mediaUrl: mediaUrl
-      }
+      message: messagePayload
     };
 
     // Send to session webhook if configured
