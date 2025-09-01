@@ -323,8 +323,18 @@ async function sendMessage(sessionId, to, content) {
       throw new Error(`Session ${sessionId} not found or not connected`);
     }
 
+    // Determine chat ID and validate recipient
+    let chatId = to;
+    if (!to.endsWith('@c.us') && !to.endsWith('@g.us')) {
+      const numberId = await session.client.getNumberId(to);
+      if (!numberId) {
+        throw new Error(`Invalid WhatsApp ID for recipient ${to}`);
+      }
+      chatId = numberId._serialized;
+    }
+
     // Send message
-    const msg = await session.client.sendMessage(to, content);
+    const msg = await session.client.sendMessage(chatId, content);
     
     // Save sent message to database
     const messageData = {
@@ -344,7 +354,9 @@ async function sendMessage(sessionId, to, content) {
       data: messageData
     });
 
-    logger.info(`Message ${savedMessage.id} sent from session ${sessionId} to ${to}`);
+    logger.info(
+      `Message ${savedMessage.id} sent from session ${sessionId} to ${chatId}`
+    );
     
     return savedMessage;
   } catch (error) {
