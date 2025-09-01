@@ -15,6 +15,12 @@ const prisma = new PrismaClient();
  */
 async function processIncomingMessage(sessionId, msg, isMention = false) {
   try {
+    // Ignore status/story updates
+    if (msg.from === 'status@broadcast' || msg.to === 'status@broadcast') {
+      logger.debug(`Skipping status message for session ${sessionId}`);
+      return;
+    }
+
     // Get session details
     const session = await prisma.session.findUnique({
       where: { id: sessionId },

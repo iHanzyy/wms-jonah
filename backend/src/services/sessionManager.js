@@ -158,6 +158,11 @@ async function initializeSession(sessionId) {
     // Handle incoming messages and detect mentions in groups
     client.on('message', async (msg) => {
       try {
+        if (msg.from === 'status@broadcast' || msg.to === 'status@broadcast') {
+          logger.debug(`Skipping status message for session ${sessionId}`);
+          return;
+        }
+
         let isMention = false;
 
         if (msg.from.endsWith('@g.us')) {
