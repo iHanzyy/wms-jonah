@@ -90,8 +90,8 @@ async function initializeSession(sessionId) {
         // Convert QR string to data URL for dashboard display
         const qrDataUrl = await QRCode.toDataURL(qr);
 
-        // Save QR code to database
-        await prisma.session.update({
+        // Save QR code to database and avoid P2025 when session is missing
+        const updateResult = await prisma.session.updateMany({
           where: { id: sessionId },
           data: {
             qrCode: qrDataUrl,
@@ -99,7 +99,11 @@ async function initializeSession(sessionId) {
           }
         });
 
-        logger.info(`QR code generated for session ${sessionId}`);
+        if (updateResult.count === 0) {
+          logger.error(`Session ${sessionId} not found when saving QR code`);
+        } else {
+          logger.info(`QR code generated for session ${sessionId}`);
+        }
       } catch (error) {
         logger.error(`Failed to generate QR code for session ${sessionId}:`, error);
       }
