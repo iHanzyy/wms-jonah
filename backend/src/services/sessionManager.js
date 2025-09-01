@@ -107,7 +107,7 @@ async function initializeSession(sessionId) {
 
     client.on('ready', async () => {
       logger.info(`Session ${sessionId} is ready`);
-      
+
       // Update session status in database
       await prisma.session.update({
         where: { id: sessionId },
@@ -117,10 +117,52 @@ async function initializeSession(sessionId) {
           lastSeen: new Date()
         }
       });
+
+      const existing = sessions.get(sessionId);
+      if (existing) {
+        existing.info.status = 'connected';
+        existing.info.lastSeen = new Date();
+      }
     });
 
-    client.on('authenticated', () => {
+    client.on('authenticated', async () => {
       logger.info(`Session ${sessionId} authenticated`);
+
+      await prisma.session.update({
+        where: { id: sessionId },
+        data: {
+          status: 'connected',
+          qrCode: null,
+          lastSeen: new Date()
+        }
+      });
+
+      const existing = sessions.get(sessionId);
+      if (existing) {
+        existing.info.status = 'connected';
+        existing.info.lastSeen = new Date();
+      }
+    });
+
+    client.on('change_state', async (state) => {
+      logger.info(`Session ${sessionId} state changed to ${state}`);
+
+      if (state === 'CONNECTED') {
+        await prisma.session.update({
+          where: { id: sessionId },
+          data: {
+            status: 'connected',
+            qrCode: null,
+            lastSeen: new Date()
+          }
+        });
+
+        const existing = sessions.get(sessionId);
+        if (existing) {
+          existing.info.status = 'connected';
+          existing.info.lastSeen = new Date();
+        }
+      }
     });
 
     client.on('auth_failure', async (msg) => {
