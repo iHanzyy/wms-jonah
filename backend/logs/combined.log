@@ -7246,3 +7246,9 @@
 {"level":"info","message":"Server running on port 3001","service":"whatsapp-api","timestamp":"2025-09-19 10:27:10"}
 {"level":"info","message":"Found 1 active sessions to initialize","service":"whatsapp-api","timestamp":"2025-09-19 10:27:10"}
 {"level":"info","message":"Initializing session 21 (Bagol)","service":"whatsapp-api","timestamp":"2025-09-19 10:27:10"}
+{"level":"info","message":"Server running on port 3001","service":"whatsapp-api","timestamp":"2025-09-19 11:15:46"}
+{"level":"info","message":"Found 1 active sessions to initialize","service":"whatsapp-api","timestamp":"2025-09-19 11:15:46"}
+{"level":"info","message":"Initializing session 21 (Bagol)","service":"whatsapp-api","timestamp":"2025-09-19 11:15:46"}
+{"level":"info","message":"WhatsApp session manager initialized","service":"whatsapp-api","timestamp":"2025-09-19 11:15:59"}
+{"level":"info","message":"Session 21 authenticated","service":"whatsapp-api","timestamp":"2025-09-19 11:16:01"}
+{"level":"info","message":"Session 21 is ready","service":"whatsapp-api","timestamp":"2025-09-19 11:16:05"}
