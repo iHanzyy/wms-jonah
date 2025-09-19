@@ -3,5 +3,8 @@ node_modules
 .env
 
 /src/generated/prisma
-.wwebjs_auth
-.wwebjs_cache
+# WhatsApp Web session caches and downloaded media
+.wwebjs_auth/
+.wwebjs_cache/
+media/
+###
