@@ -1,6 +1,0 @@
-2025/08/12-11:41:17.480 df5e Reusing MANIFEST /home/bagas/whatsapp-management-system/backend/.wwebjs_auth/session-session-6/Default/Local Storage/leveldb/MANIFEST-000001
-2025/08/12-11:41:17.481 df5e Recovering log #3
-2025/08/12-11:41:17.481 df5e Reusing old log /home/bagas/whatsapp-management-system/backend/.wwebjs_auth/session-session-6/Default/Local Storage/leveldb/000003.log 
-2025/08/12-11:44:30.872 df8f Level-0 table #5: started
-2025/08/12-11:44:30.876 df8f Level-0 table #5: 17720 bytes OK
-2025/08/12-11:44:30.880 df8f Delete type=0 #3
