@@ -1,0 +1,31 @@
+2025/09/01-10:33:44.861 2b4d Reusing MANIFEST /home/bagas/whatsapp-management-system/backend/.wwebjs_auth/session-session-13/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2025/09/01-10:33:44.861 2b4d Recovering log #462
+2025/09/01-10:33:44.866 2b4d Reusing old log /home/bagas/whatsapp-management-system/backend/.wwebjs_auth/session-session-13/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/000462.log 
+2025/09/01-10:33:47.357 2b61 Level-0 table #476: started
+2025/09/01-10:33:47.362 2b61 Level-0 table #476: 48354 bytes OK
+2025/09/01-10:33:47.364 2b61 Delete type=0 #462
+2025/09/01-10:33:47.364 2b61 Manual compaction at level-0 from '\x00 \x00\x00\x00' @ 72057594037927935 : 1 .. '\x00!\x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/09/01-10:33:52.810 2b4c Compacting 1@1 + 10@2 files
+2025/09/01-10:33:53.006 2b4c Generated table #477@1: 87648 keys, 2246167 bytes
+2025/09/01-10:33:53.075 2b4c Generated table #478@1: 16620 keys, 2219556 bytes
+2025/09/01-10:33:53.113 2b4c Generated table #479@1: 3163 keys, 2135081 bytes
+2025/09/01-10:33:53.215 2b4c Generated table #480@1: 21335 keys, 2180930 bytes
+2025/09/01-10:33:53.280 2b4c Generated table #481@1: 1860 keys, 2118896 bytes
+2025/09/01-10:33:53.470 2b4c Generated table #482@1: 92870 keys, 2239912 bytes
+2025/09/01-10:33:53.624 2b4c Generated table #483@1: 107492 keys, 2260131 bytes
+2025/09/01-10:33:53.790 2b4c Generated table #484@1: 108080 keys, 2258708 bytes
+2025/09/01-10:33:53.953 2b4c Generated table #485@1: 107327 keys, 2260286 bytes
+2025/09/01-10:33:53.957 2b4c Generated table #486@1: 1691 keys, 43869 bytes
+2025/09/01-10:33:53.957 2b4c Compacted 1@1 + 10@2 files => 19963536 bytes
+2025/09/01-10:33:53.961 2b4c compacted to: files[ 0 0 10 0 0 0 0 ]
+2025/09/01-10:33:53.961 2b4c Delete type=2 #466
+2025/09/01-10:33:53.961 2b4c Delete type=2 #473
+2025/09/01-10:33:53.961 2b4c Delete type=2 #470
+2025/09/01-10:33:53.961 2b4c Delete type=2 #465
+2025/09/01-10:33:53.961 2b4c Delete type=2 #467
+2025/09/01-10:33:53.961 2b4c Delete type=2 #476
+2025/09/01-10:33:53.961 2b4c Delete type=2 #469
+2025/09/01-10:33:53.961 2b4c Delete type=2 #471
+2025/09/01-10:33:53.961 2b4c Delete type=2 #464
+2025/09/01-10:33:53.961 2b4c Delete type=2 #468
+2025/09/01-10:33:53.962 2b4c Delete type=2 #472

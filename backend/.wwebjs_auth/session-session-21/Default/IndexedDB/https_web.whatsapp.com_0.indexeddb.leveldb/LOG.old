@@ -1,0 +1,11 @@
+2025/09/19-11:03:12.100 7446 Reusing MANIFEST /home/bagas/whatsapp-management-system/backend/.wwebjs_auth/session-session-21/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2025/09/19-11:03:12.101 7446 Recovering log #228
+2025/09/19-11:03:12.246 7446 Reusing old log /home/bagas/whatsapp-management-system/backend/.wwebjs_auth/session-session-21/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/000228.log 
+2025/09/19-11:03:15.041 7438 Level-0 table #238: started
+2025/09/19-11:03:15.070 7438 Level-0 table #238: 384442 bytes OK
+2025/09/19-11:03:15.073 7438 Delete type=0 #228
+2025/09/19-11:03:15.074 7438 Manual compaction at level-0 from '\x00#\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00$\x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/09/19-11:03:22.290 7446 Compacting 1@1 + 6@2 files
+2025/09/19-11:03:22.569 7446 Generated table #239@1: 40502 keys, 2196953 bytes
+2025/09/19-11:03:22.744 7446 Generated table #240@1: 16000 keys, 2166224 bytes
+2025/09/19-11:03:22.863 7446 Generated table #241@1: 18608 keys, 2143319 bytes
