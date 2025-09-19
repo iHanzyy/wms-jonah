@@ -193,12 +193,43 @@ This document describes all REST endpoints exposed by the backend service in `ba
 ### Send Message
 - Method: `POST`
 - Path: `/api/messages/session/:sessionId/send`
-- Body:
-  ```json
-  { "to": "1234567890@c.us", "message": "Hi there" }
-  ```
+- Body: Accepts `application/json` or `multipart/form-data`.
+  - **Common fields**
+    - `to` (string, required) — recipient phone/WhatsApp ID.
+    - `message` (string, optional) — text body; required only when no media is supplied.
+    - `caption` (string, optional) — overrides the caption used for media messages.
+  - **Media options**
+    - `media` can be:
+      1. A JSON object `{ "type": "image", "url": "https://..." }`.
+      2. A JSON object `{ "type": "image", "data": "<base64>", "mimetype": "image/jpeg", "filename": "photo.jpg" }`.
+      3. A plain base64 string combined with `mediaMimeType` (and optional `mediaFilename`, `mediaType`) fields.
+    - When using `multipart/form-data`, you may also upload a file field named `media`; the backend will convert it automatically.
+    - Only `image` media type is currently supported.
+- Example requests:
+  - Text only
+    ```json
+    { "to": "1234567890@c.us", "message": "Hi there" }
+    ```
+  - JSON with base64 media
+    ```json
+    {
+      "to": "1234567890",
+      "media": {
+        "type": "image",
+        "data": "iVBORw0KGgoAAAANSUhEUgAA...",
+        "mimetype": "image/png",
+        "filename": "hello.png"
+      }
+    }
+    ```
+  - `multipart/form-data` fields
+    - `to = 1234567890`
+    - `media = iVBORw0KGgoAAAANSUhEUgAA...` (base64 string)
+    - `mediaMimeType = image/png`
+    - `mediaFilename = hello.png` *(optional)*
+    - `caption = Hi there` *(optional)*
 - Response 200: Saved sent message object.
-- Errors: 400 (missing fields or session not connected), 404 (session not found).
+- Errors: 400 (missing `to`, missing both `message` and media, invalid media payload, or session not connected), 404 (session not found).
 
 ## Webhooks
 
@@ -316,4 +347,3 @@ To expose saved media via HTTP, mount a static handler in your Express app:
 const path = require('path');
 app.use('/media', express.static(path.join(__dirname, '../media')));
 ```
-
