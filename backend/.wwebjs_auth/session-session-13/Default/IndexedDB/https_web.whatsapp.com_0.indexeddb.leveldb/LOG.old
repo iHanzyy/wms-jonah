@@ -1,0 +1,59 @@
+2025/09/01-10:15:15.174 25c6 Reusing MANIFEST /home/bagas/whatsapp-management-system/backend/.wwebjs_auth/session-session-13/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2025/09/01-10:15:15.174 25c6 Recovering log #437
+2025/09/01-10:15:15.226 25c6 Reusing old log /home/bagas/whatsapp-management-system/backend/.wwebjs_auth/session-session-13/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/000437.log 
+2025/09/01-10:15:18.170 25c7 Level-0 table #451: started
+2025/09/01-10:15:18.181 25c7 Level-0 table #451: 244919 bytes OK
+2025/09/01-10:15:18.184 25c7 Delete type=0 #437
+2025/09/01-10:15:18.185 25c7 Manual compaction at level-0 from '\x00\x1e\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x1f\x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/09/01-10:15:23.006 25cc Compacting 1@1 + 10@2 files
+2025/09/01-10:15:23.249 25cc Generated table #452@1: 85482 keys, 2251593 bytes
+2025/09/01-10:15:23.347 25cc Generated table #453@1: 16589 keys, 2214038 bytes
+2025/09/01-10:15:23.401 25cc Generated table #454@1: 4136 keys, 2136676 bytes
+2025/09/01-10:15:23.489 25cc Generated table #455@1: 20359 keys, 2174614 bytes
+2025/09/01-10:15:23.540 25cc Generated table #456@1: 1881 keys, 2120658 bytes
+2025/09/01-10:15:23.767 25cc Generated table #457@1: 94690 keys, 2243572 bytes
+2025/09/01-10:15:23.998 25cc Generated table #458@1: 107375 keys, 2259771 bytes
+2025/09/01-10:15:24.259 25cc Generated table #459@1: 108310 keys, 2260650 bytes
+2025/09/01-10:15:24.461 25cc Generated table #460@1: 106907 keys, 2257670 bytes
+2025/09/01-10:15:24.463 25cc Generated table #461@1: 87 keys, 6642 bytes
+2025/09/01-10:15:24.463 25cc Compacted 1@1 + 10@2 files => 19925884 bytes
+2025/09/01-10:15:24.467 25cc compacted to: files[ 0 0 10 0 0 0 0 ]
+2025/09/01-10:15:24.468 25cc Delete type=2 #446
+2025/09/01-10:15:24.468 25cc Delete type=2 #445
+2025/09/01-10:15:24.468 25cc Delete type=2 #444
+2025/09/01-10:15:24.468 25cc Delete type=2 #439
+2025/09/01-10:15:24.468 25cc Delete type=2 #448
+2025/09/01-10:15:24.468 25cc Delete type=2 #447
+2025/09/01-10:15:24.468 25cc Delete type=2 #440
+2025/09/01-10:15:24.468 25cc Delete type=2 #443
+2025/09/01-10:15:24.468 25cc Delete type=2 #442
+2025/09/01-10:15:24.468 25cc Delete type=2 #451
+2025/09/01-10:15:24.468 25cc Delete type=2 #441
+2025/09/01-10:20:27.611 28b0 Level-0 table #463: started
+2025/09/01-10:20:27.635 28b0 Level-0 table #463: 474141 bytes OK
+2025/09/01-10:20:27.638 28b0 Delete type=0 #450
+2025/09/01-10:20:27.638 28b0 Manual compaction at level-0 from '\x00\x1f\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00 \x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/09/01-10:20:28.073 28b0 Compacting 1@1 + 10@2 files
+2025/09/01-10:20:28.237 28b0 Generated table #464@1: 87447 keys, 2249834 bytes
+2025/09/01-10:20:28.305 28b0 Generated table #465@1: 16614 keys, 2218592 bytes
+2025/09/01-10:20:28.338 28b0 Generated table #466@1: 3396 keys, 2137054 bytes
+2025/09/01-10:20:28.438 28b0 Generated table #467@1: 21098 keys, 2176761 bytes
+2025/09/01-10:20:28.473 28b0 Generated table #468@1: 1860 keys, 2119619 bytes
+2025/09/01-10:20:28.639 28b0 Generated table #469@1: 93137 keys, 2240718 bytes
+2025/09/01-10:20:28.812 28b0 Generated table #470@1: 107513 keys, 2260138 bytes
+2025/09/01-10:20:28.972 28b0 Generated table #471@1: 108098 keys, 2258648 bytes
+2025/09/01-10:20:29.131 28b0 Generated table #472@1: 107316 keys, 2260358 bytes
+2025/09/01-10:20:29.135 28b0 Generated table #473@1: 1394 keys, 37919 bytes
+2025/09/01-10:20:29.135 28b0 Compacted 1@1 + 10@2 files => 19959641 bytes
+2025/09/01-10:20:29.138 28b0 compacted to: files[ 0 0 10 0 0 0 0 ]
+2025/09/01-10:20:29.139 28b0 Delete type=2 #463
+2025/09/01-10:20:29.139 28b0 Delete type=2 #456
+2025/09/01-10:20:29.139 28b0 Delete type=2 #461
+2025/09/01-10:20:29.139 28b0 Delete type=2 #453
+2025/09/01-10:20:29.139 28b0 Delete type=2 #452
+2025/09/01-10:20:29.139 28b0 Delete type=2 #459
+2025/09/01-10:20:29.139 28b0 Delete type=2 #457
+2025/09/01-10:20:29.139 28b0 Delete type=2 #460
+2025/09/01-10:20:29.139 28b0 Delete type=2 #454
+2025/09/01-10:20:29.139 28b0 Delete type=2 #458
+2025/09/01-10:20:29.139 28b0 Delete type=2 #455

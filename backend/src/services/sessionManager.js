@@ -10,6 +10,41 @@ const { processIncomingMessage } = require('./messageHandler');
 const prisma = new PrismaClient();
 const sessions = new Map();
 
+async function updateSessionRecord(sessionId, data) {
+  try {
+    const result = await prisma.session.updateMany({
+      where: { id: sessionId },
+      data
+    });
+
+    if (result.count === 0) {
+      logger.error(`Session ${sessionId} not found when updating record`);
+      return false;
+    }
+
+    const entry = sessions.get(sessionId);
+    if (entry) {
+      const info = { ...entry.info };
+
+      if (Object.prototype.hasOwnProperty.call(data, 'status')) {
+        info.status = data.status;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(data, 'lastSeen')) {
+        info.lastSeen = data.lastSeen;
+      }
+
+      entry.info = info;
+      sessions.set(sessionId, entry);
+    }
+
+    return true;
+  } catch (error) {
+    logger.error(`Failed to update session ${sessionId}:`, error);
+    return false;
+  }
+}
+
 /**
  * Initialize the WhatsApp session manager
  * This will load all active sessions from the database and initialize them
@@ -83,23 +118,22 @@ async function initializeSession(sessionId) {
 
     // Set up event handlers
     client.on('qr', async (qr) => {
-      // Generate QR code for terminal (for debugging)
-      qrcode.generate(qr, { small: true });
+      // Generate QR code for terminal (for debugging) and log it via Winston
+      qrcode.generate(qr, { small: true }, (asciiQR) => {
+        logger.info(`QR code for session ${sessionId}:\n${asciiQR}`);
+      });
+      logger.debug(`QR string for session ${sessionId}: ${qr}`);
 
       try {
         // Convert QR string to data URL for dashboard display
         const qrDataUrl = await QRCode.toDataURL(qr);
 
-        // Save QR code to database and avoid P2025 when session is missing
-        const updateResult = await prisma.session.updateMany({
-          where: { id: sessionId },
-          data: {
-            qrCode: qrDataUrl,
-            status: 'connecting'
-          }
+        const updated = await updateSessionRecord(sessionId, {
+          qrCode: qrDataUrl,
+          status: 'connecting'
         });
 
-        if (updateResult.count === 0) {
+        if (!updated) {
           logger.error(`Session ${sessionId} not found when saving QR code`);
         } else {
           logger.info(`QR code generated for session ${sessionId}`);
@@ -111,15 +145,10 @@ async function initializeSession(sessionId) {
 
     client.on('ready', async () => {
       logger.info(`Session ${sessionId} is ready`);
-
-      // Update session status in database
-      await prisma.session.update({
-        where: { id: sessionId },
-        data: {
-          status: 'connected',
-          qrCode: null,
-          lastSeen: new Date()
-        }
+      await updateSessionRecord(sessionId, {
+        status: 'connected',
+        qrCode: null,
+        lastSeen: new Date()
       });
 
       const existing = sessions.get(sessionId);
@@ -132,13 +161,10 @@ async function initializeSession(sessionId) {
     client.on('authenticated', async () => {
       logger.info(`Session ${sessionId} authenticated`);
 
-      await prisma.session.update({
-        where: { id: sessionId },
-        data: {
-          status: 'connected',
-          qrCode: null,
-          lastSeen: new Date()
-        }
+      await updateSessionRecord(sessionId, {
+        status: 'connected',
+        qrCode: null,
+        lastSeen: new Date()
       });
 
       const existing = sessions.get(sessionId);
@@ -152,13 +178,10 @@ async function initializeSession(sessionId) {
       logger.info(`Session ${sessionId} state changed to ${state}`);
 
       if (state === 'CONNECTED') {
-        await prisma.session.update({
-          where: { id: sessionId },
-          data: {
-            status: 'connected',
-            qrCode: null,
-            lastSeen: new Date()
-          }
+        await updateSessionRecord(sessionId, {
+          status: 'connected',
+          qrCode: null,
+          lastSeen: new Date()
         });
 
         const existing = sessions.get(sessionId);
@@ -172,13 +195,9 @@ async function initializeSession(sessionId) {
     client.on('auth_failure', async (msg) => {
       logger.error(`Session ${sessionId} authentication failed: ${msg}`);
       
-      // Update session status in database
-      await prisma.session.update({
-        where: { id: sessionId },
-        data: {
-          status: 'disconnected',
-          qrCode: null
-        }
+      await updateSessionRecord(sessionId, {
+        status: 'disconnected',
+        qrCode: null
       });
       
       // Remove session from map
@@ -188,13 +207,9 @@ async function initializeSession(sessionId) {
     client.on('disconnected', async (reason) => {
       logger.info(`Session ${sessionId} disconnected: ${reason}`);
       
-      // Update session status in database
-      await prisma.session.update({
-        where: { id: sessionId },
-        data: {
-          status: 'disconnected',
-          qrCode: null
-        }
+      await updateSessionRecord(sessionId, {
+        status: 'disconnected',
+        qrCode: null
       });
       
       // Remove session from map
@@ -239,13 +254,9 @@ async function initializeSession(sessionId) {
   } catch (error) {
     logger.error(`Error initializing session ${sessionId}:`, error);
     
-    // Update session status in database
-    await prisma.session.update({
-      where: { id: sessionId },
-      data: {
-        status: 'disconnected',
-        qrCode: null
-      }
+    await updateSessionRecord(sessionId, {
+      status: 'disconnected',
+      qrCode: null
     });
     
     throw error;
@@ -325,4 +336,3 @@ module.exports = {
   getAllSessions,
   closeSession
 };
-

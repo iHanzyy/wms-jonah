@@ -1,0 +1,4 @@
+2025/08/27-14:18:02.787 4b74 Reusing MANIFEST /home/bagas/whatsapp-management-system/backend/.wwebjs_auth/session-session-12/Default/Local Storage/leveldb/MANIFEST-000001
+2025/08/27-14:18:02.788 4b74 Recovering log #7
+2025/08/27-14:18:02.788 4b74 (ignoring error) /home/bagas/whatsapp-management-system/backend/.wwebjs_auth/session-session-12/Default/Local Storage/leveldb/000007.log: dropping 3 bytes; Corruption: missing start of fragmented record(2)
+2025/08/27-14:18:02.789 4b74 Reusing old log /home/bagas/whatsapp-management-system/backend/.wwebjs_auth/session-session-12/Default/Local Storage/leveldb/000007.log 
