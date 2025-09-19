@@ -3,6 +3,7 @@ const axios = require('axios');
 const sharp = require('sharp');
 const fs = require('fs');
 const path = require('path');
+const { MessageMedia } = require('whatsapp-web.js');
 const logger = require('../utils/logger');
 
 const prisma = new PrismaClient();
@@ -310,22 +311,24 @@ async function sendToWebhook(session, message, media = null) {
 /**
  * Send a message via WhatsApp
  * @param {number} sessionId - The session ID
- * @param {string} to - The recipient phone number
- * @param {string} content - The message content
+ * @param {string} to - The recipient phone number or chat ID
+ * @param {string} content - The message content (used as caption for media)
+ * @param {object} [options] - Additional message options
+ * @param {object} [options.media] - Media payload for the message
  * @returns {Promise<object>} - The sent message
  */
-async function sendMessage(sessionId, to, content) {
+async function sendMessage(sessionId, to, content, options = {}) {
   try {
     const { getSession } = require('./sessionManager');
     const session = getSession(sessionId);
-    
+
     if (!session) {
       throw new Error(`Session ${sessionId} not found or not connected`);
     }
 
-    // Determine chat ID and validate recipient
+    // Determine chat ID and validate recipient when needed
     let chatId = to;
-    if (!to.endsWith('@c.us') && !to.endsWith('@g.us')) {
+    if (!chatId.endsWith('@c.us') && !chatId.endsWith('@g.us')) {
       const numberId = await session.client.getNumberId(to);
       if (!numberId) {
         throw new Error(`Invalid WhatsApp ID for recipient ${to}`);
@@ -333,10 +336,59 @@ async function sendMessage(sessionId, to, content) {
       chatId = numberId._serialized;
     }
 
-    // Send message
-    const msg = await session.client.sendMessage(chatId, content);
-    
-    // Save sent message to database
+    const mediaOptions = options.media;
+    let outboundContent = typeof content === 'string' ? content : '';
+    let msg;
+
+    if (mediaOptions) {
+      const {
+        type,
+        url = null,
+        data = null,
+        mimetype = null,
+        filename = null,
+        caption = null
+      } = mediaOptions;
+
+      if (!type || type !== 'image') {
+        throw new Error(`Unsupported media type: ${type || 'undefined'}`);
+      }
+
+      let mediaPayload;
+
+      if (data) {
+        if (!mimetype) {
+          throw new Error('Media mimetype is required when providing base64 data');
+        }
+
+        const inferredFilename = filename || `media.${inferExtensionFromMime(mimetype)}`;
+        const normalizedData = stripBase64Prefix(data);
+        mediaPayload = new MessageMedia(mimetype, normalizedData, inferredFilename);
+      } else if (url) {
+        mediaPayload = await MessageMedia.fromUrl(url, { unsafeMime: true });
+      } else {
+        throw new Error('Media payload must include either a url or base64 data field');
+      }
+
+      const mediaCaption = typeof caption === 'string' && caption.trim() !== ''
+        ? caption
+        : outboundContent;
+
+      msg = await session.client.sendMessage(chatId, mediaPayload, {
+        caption: mediaCaption ? mediaCaption : undefined
+      });
+
+      outboundContent = (msg && typeof msg.body === 'string' && msg.body.trim() !== '')
+        ? msg.body
+        : (mediaCaption || '');
+    } else {
+      if (typeof outboundContent !== 'string' || outboundContent.trim() === '') {
+        throw new Error('Message content is required for text messages');
+      }
+
+      msg = await session.client.sendMessage(chatId, outboundContent);
+    }
+
     const messageData = {
       sessionId,
       messageId: msg.id.id,
@@ -344,8 +396,8 @@ async function sendMessage(sessionId, to, content) {
       toNumber: msg.to,
       contactName: null,
       groupId: null,
-      messageType: 'chat',
-      content: content,
+      messageType: msg.type || (mediaOptions ? mediaOptions.type : 'chat'),
+      content: outboundContent,
       timestamp: new Date(),
       webhookSent: true
     };
@@ -357,7 +409,7 @@ async function sendMessage(sessionId, to, content) {
     logger.info(
       `Message ${savedMessage.id} sent from session ${sessionId} to ${chatId}`
     );
-    
+
     return savedMessage;
   } catch (error) {
     logger.error(`Error sending message from session ${sessionId} to ${to}:`, error);
@@ -365,8 +417,42 @@ async function sendMessage(sessionId, to, content) {
   }
 }
 
+function inferExtensionFromMime(mimetype) {
+  if (!mimetype) return 'bin';
+  const [type, subtype] = mimetype.split('/');
+  if (!subtype) {
+    return type || 'bin';
+  }
+  return subtype.split(';')[0] || 'bin';
+}
+
+function stripBase64Prefix(value) {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const base64Marker = ';base64,';
+  const markerIndex = value.indexOf(base64Marker);
+
+  if (markerIndex !== -1) {
+    return value
+      .slice(markerIndex + base64Marker.length)
+      .replace(/\s+/g, '');
+  }
+
+  if (value.startsWith('data:')) {
+    const commaIndex = value.indexOf(',');
+    if (commaIndex !== -1) {
+      return value
+        .slice(commaIndex + 1)
+        .replace(/\s+/g, '');
+    }
+  }
+
+  return value.replace(/\s+/g, '');
+}
+
 module.exports = {
   processIncomingMessage,
   sendMessage
 };
-
