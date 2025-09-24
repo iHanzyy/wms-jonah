@@ -1,6 +1,3 @@
-2025/08/25-09:22:25.557 259c Reusing MANIFEST /home/bagas/whatsapp-management-system/backend/.wwebjs_auth/session-session-10/Default/Local Storage/leveldb/MANIFEST-000001
-2025/08/25-09:22:25.559 259c Recovering log #7
-2025/08/25-09:22:25.561 259c Reusing old log /home/bagas/whatsapp-management-system/backend/.wwebjs_auth/session-session-10/Default/Local Storage/leveldb/000007.log 
-2025/08/25-09:23:26.492 260a Level-0 table #11: started
-2025/08/25-09:23:26.496 260a Level-0 table #11: 19732 bytes OK
-2025/08/25-09:23:26.499 260a Delete type=0 #7
+2025/09/24-16:53:17.979 15fef Reusing MANIFEST /home/bagas/whatsapp-management-system/backend/.wwebjs_auth/session-session-10/Default/Local Storage/leveldb/MANIFEST-000001
+2025/09/24-16:53:17.979 15fef Recovering log #10
+2025/09/24-16:53:17.979 15fef Reusing old log /home/bagas/whatsapp-management-system/backend/.wwebjs_auth/session-session-10/Default/Local Storage/leveldb/000010.log 
