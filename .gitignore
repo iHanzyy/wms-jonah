@@ -1,3 +1,6 @@
-# WhatsApp Web JS session/cache
+
+# WhatsApp Web JS session/cache dan logs
 backend/.wwebjs_auth/
 backend/.wwebjs_cache/
+backend/logs/
+*.log
