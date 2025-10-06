@@ -7,9 +7,130 @@ const { PrismaClient } = require('@prisma/client');
 const logger = require('../utils/logger');
 const { processIncomingMessage } = require('./messageHandler');
 
+const fsp = fs.promises;
+
 const prisma = new PrismaClient();
 const sessions = new Map();
 const typingStatus = new Map(); // sessionId -> Map(chatId -> { isTyping, updatedAt })
+
+async function walkDirectory(basePath, relative = '') {
+  const entries = [];
+
+  try {
+    const dirEntries = await fsp.readdir(basePath, { withFileTypes: true });
+
+    for (const entry of dirEntries) {
+      const relPath = relative ? `${relative}/${entry.name}` : entry.name;
+      const absolutePath = path.join(basePath, entry.name);
+
+      if (entry.isDirectory()) {
+        entries.push({ type: 'dir', path: relPath });
+        const childEntries = await walkDirectory(absolutePath, relPath);
+        entries.push(...childEntries);
+      } else if (entry.isFile()) {
+        const content = await fsp.readFile(absolutePath);
+        entries.push({ type: 'file', path: relPath, data: content.toString('base64') });
+      }
+    }
+  } catch (error) {
+    logger.warn(`Failed to read auth directory ${basePath}:`, error);
+  }
+
+  return entries;
+}
+
+async function serializeAuthDirectory(sessionDir) {
+  try {
+    const stats = await fsp.stat(sessionDir).catch(() => null);
+
+    if (!stats || !stats.isDirectory()) {
+      return null;
+    }
+
+    const entries = await walkDirectory(sessionDir);
+
+    if (!entries.length) {
+      return null;
+    }
+
+    return {
+      version: 1,
+      entries
+    };
+  } catch (error) {
+    logger.warn(`Failed to serialize auth directory for ${sessionDir}:`, error);
+    return null;
+  }
+}
+
+async function restoreAuthDirectory(sessionDir, snapshot) {
+  if (!snapshot || typeof snapshot !== 'object' || !Array.isArray(snapshot.entries)) {
+    return false;
+  }
+
+  try {
+    await fsp.rm(sessionDir, { recursive: true, force: true });
+  } catch (error) {
+    logger.warn(`Failed to clear auth directory ${sessionDir} before restore:`, error);
+  }
+
+  try {
+    await fsp.mkdir(sessionDir, { recursive: true });
+  } catch (error) {
+    logger.warn(`Failed to create auth directory ${sessionDir} during restore:`, error);
+    return false;
+  }
+
+  for (const entry of snapshot.entries) {
+    const targetPath = path.join(sessionDir, entry.path);
+
+    try {
+      if (entry.type === 'dir') {
+        await fsp.mkdir(targetPath, { recursive: true });
+      } else if (entry.type === 'file') {
+        await fsp.mkdir(path.dirname(targetPath), { recursive: true });
+        const buffer = Buffer.from(entry.data || '', 'base64');
+        await fsp.writeFile(targetPath, buffer);
+      }
+    } catch (error) {
+      logger.warn(`Failed to restore auth entry ${entry.path} for ${sessionDir}:`, error);
+    }
+  }
+
+  return true;
+}
+
+async function persistPendingAuthState(sessionId, sessionDir) {
+  try {
+    const snapshot = await serializeAuthDirectory(sessionDir);
+
+    if (!snapshot) {
+      return false;
+    }
+
+    await prisma.session.update({
+      where: { id: sessionId },
+      data: { sessionData: snapshot }
+    });
+
+    logger.info(`Persisted pending auth state for session ${sessionId}`);
+    return true;
+  } catch (error) {
+    logger.warn(`Failed to persist pending auth state for session ${sessionId}:`, error);
+    return false;
+  }
+}
+
+async function clearPersistedAuthState(sessionId) {
+  try {
+    await prisma.session.update({
+      where: { id: sessionId },
+      data: { sessionData: null }
+    });
+  } catch (error) {
+    logger.warn(`Failed to clear pending auth state for session ${sessionId}:`, error);
+  }
+}
 
 function getSessionTypingMap(sessionId) {
   if (!typingStatus.has(sessionId)) {
@@ -151,11 +272,44 @@ async function initializeSession(sessionId) {
 
     logger.info(`Initializing session ${sessionId} (${session.sessionName})`);
 
-    // Create session directory if it doesn't exist
     const sessionDir = path.join(process.env.WWEBJS_DATA_DIR || '.wwebjs_auth', `session-${sessionId}`);
+
+    let pendingAuthStored =
+      Boolean(session.sessionData) && Array.isArray(session.sessionData.entries) && session.sessionData.entries.length > 0;
+    let lastPersistedQr = session.qrCode || null;
+
+    if (pendingAuthStored) {
+      const restored = await restoreAuthDirectory(sessionDir, session.sessionData);
+      if (!restored) {
+        pendingAuthStored = false;
+        await clearPersistedAuthState(sessionId);
+      }
+    }
+
     if (!fs.existsSync(sessionDir)) {
       fs.mkdirSync(sessionDir, { recursive: true });
     }
+
+    const updateRuntimePendingFlag = () => {
+      const runtimeEntry = sessions.get(sessionId);
+      if (runtimeEntry) {
+        runtimeEntry.hasPendingAuth = pendingAuthStored;
+      }
+    };
+
+    if (pendingAuthStored) {
+      updateRuntimePendingFlag();
+    }
+
+    const clearPendingArtifacts = async () => {
+      if (pendingAuthStored) {
+        await clearPersistedAuthState(sessionId);
+      }
+
+      pendingAuthStored = false;
+      lastPersistedQr = null;
+      updateRuntimePendingFlag();
+    };
 
     // Create WhatsApp client
     const client = new Client({
@@ -177,11 +331,21 @@ async function initializeSession(sessionId) {
       logger.debug(`QR string for session ${sessionId}: ${qr}`);
 
       try {
-        // Convert QR string to data URL for dashboard display
-        const qrDataUrl = await QRCode.toDataURL(qr);
+        if (!pendingAuthStored) {
+          const persisted = await persistPendingAuthState(sessionId, sessionDir);
+
+          if (persisted) {
+            pendingAuthStored = true;
+            updateRuntimePendingFlag();
+          }
+        }
+
+        if (!lastPersistedQr) {
+          lastPersistedQr = await QRCode.toDataURL(qr);
+        }
 
         const updated = await updateSessionRecord(sessionId, {
-          qrCode: qrDataUrl,
+          qrCode: lastPersistedQr,
           status: 'connecting'
         });
 
@@ -197,6 +361,7 @@ async function initializeSession(sessionId) {
 
     client.on('ready', async () => {
       logger.info(`Session ${sessionId} is ready`);
+      await clearPendingArtifacts();
       await updateSessionRecord(sessionId, {
         status: 'connected',
         qrCode: null,
@@ -213,6 +378,7 @@ async function initializeSession(sessionId) {
     client.on('authenticated', async () => {
       logger.info(`Session ${sessionId} authenticated`);
 
+      await clearPendingArtifacts();
       await updateSessionRecord(sessionId, {
         status: 'connected',
         qrCode: null,
@@ -230,6 +396,7 @@ async function initializeSession(sessionId) {
       logger.info(`Session ${sessionId} state changed to ${state}`);
 
       if (state === 'CONNECTED') {
+        await clearPendingArtifacts();
         await updateSessionRecord(sessionId, {
           status: 'connected',
           qrCode: null,
@@ -246,12 +413,13 @@ async function initializeSession(sessionId) {
 
     client.on('auth_failure', async (msg) => {
       logger.error(`Session ${sessionId} authentication failed: ${msg}`);
-      
+
+      await clearPendingArtifacts();
       await updateSessionRecord(sessionId, {
         status: 'disconnected',
         qrCode: null
       });
-      
+
       // Remove session from map
       sessions.delete(sessionId);
       typingStatus.delete(sessionId);
@@ -259,7 +427,8 @@ async function initializeSession(sessionId) {
 
     client.on('disconnected', async (reason) => {
       logger.info(`Session ${sessionId} disconnected: ${reason}`);
-      
+
+      await clearPendingArtifacts();
       await updateSessionRecord(sessionId, {
         status: 'disconnected',
         qrCode: null
@@ -329,7 +498,8 @@ async function initializeSession(sessionId) {
         id: sessionId,
         name: session.sessionName,
         status: session.status
-      }
+      },
+      hasPendingAuth: pendingAuthStored
     });
 
     return sessions.get(sessionId);
@@ -387,7 +557,8 @@ async function closeSession(sessionId) {
       where: { id: sessionId },
       data: {
         status: 'disconnected',
-        qrCode: null
+        qrCode: null,
+        sessionData: null
       }
     });
     
