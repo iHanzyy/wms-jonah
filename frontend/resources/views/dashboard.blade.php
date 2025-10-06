@@ -80,7 +80,7 @@
                                                 @endif
                                             </td>
                                             <td class="py-5">
-                                                <span class="px-3 py-1 rounded-full text-sm font-medium
+                                                <span data-session-status="{{ $session->id }}" class="px-3 py-1 rounded-full text-sm font-medium
                                                     @if($session->status === 'connected') bg-green-600/20 text-green-400 border border-green-600/50
                                                     @elseif($session->status === 'connecting') bg-yellow-600/20 text-yellow-400 border border-yellow-600/50
                                                     @else bg-red-600/20 text-red-400 border border-red-600/50
@@ -91,7 +91,7 @@
                                             <td class="py-5">
                                                 <div class="flex gap-2 justify-end">
                                                     @if($session->status === 'disconnected')
-                                                        <button onclick="startSession({{ $session->id }})"
+                                                        <button onclick="startSession({{ $session->id }})" data-session-start="{{ $session->id }}"
                                                                 class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 hover:scale-105 hover:shadow-lg flex items-center gap-2">
                                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
@@ -165,7 +165,7 @@
                                         <div class="flex-1 min-w-0">
                                             <h4 class="text-orange-400 font-semibold text-lg truncate">{{ $session->session_name }}</h4>
                                             <div class="mt-2">
-                                                <span class="px-3 py-1 rounded-full text-xs font-medium
+                                                <span data-session-status="{{ $session->id }}" class="px-3 py-1 rounded-full text-xs font-medium
                                                     @if($session->status === 'connected') bg-green-600/20 text-green-400 border border-green-600/50
                                                     @elseif($session->status === 'connecting') bg-yellow-600/20 text-yellow-400 border border-yellow-600/50
                                                     @else bg-red-600/20 text-red-400 border border-red-600/50
@@ -187,7 +187,7 @@
 
                                     <div class="flex flex-wrap gap-2">
                                         @if($session->status === 'disconnected')
-                                            <button onclick="startSession({{ $session->id }})"
+                                            <button onclick="startSession({{ $session->id }})" data-session-start="{{ $session->id }}"
                                                     class="flex-1 bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 hover:scale-105 flex items-center justify-center gap-1 min-w-[80px]">
                                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
@@ -407,8 +407,8 @@
                     </div>
                 </div>
                 <div class="bg-gray-700/50 rounded-xl p-4 mb-6 border border-gray-600/50">
-                    <p class="text-gray-300 text-sm leading-relaxed">
-                        <span class="text-orange-400 font-medium">Important:</span> Session Name & Webhook URL will remain the same, but the WhatsApp session will be deleted and recreated.
+                    <p id="qrStatusMessage" class="text-gray-300 text-sm leading-relaxed">
+                        Scan the QR code within 60 seconds to connect this device. If the timer expires, start the session again to generate a new code.
                     </p>
                 </div>
                 <button onclick="closeQrModal()"
@@ -1468,34 +1468,265 @@
             document.getElementById('editModal').classList.remove('flex');
         }
 
+        const QR_DEFAULT_MESSAGE = 'Scan the QR code within 60 seconds to connect this device. If the timer expires, start the session again to generate a new code.';
+        const QR_WAITING_PLACEHOLDER = 'Waiting for WhatsApp to generate a QR code...';
+
         let qrInterval;
+        let qrExpiryTimeout;
+        let qrCountdownInterval;
+        let qrAutoCloseTimeout;
+
+        const STATUS_CLASS_MAP = {
+            connected: ['bg-green-600/20', 'text-green-400', 'border-green-600/50'],
+            connecting: ['bg-yellow-600/20', 'text-yellow-400', 'border-yellow-600/50'],
+            disconnected: ['bg-red-600/20', 'text-red-400', 'border-red-600/50'],
+        };
+
+        const STATUS_CLASS_KEYS = Object.values(STATUS_CLASS_MAP).flat();
+
+        function updateSessionStatusBadge(sessionId, status) {
+            const normalized = (status || 'disconnected').toLowerCase();
+            const classes = STATUS_CLASS_MAP[normalized] || STATUS_CLASS_MAP.disconnected;
+
+            document.querySelectorAll(`[data-session-status="${sessionId}"]`).forEach((badge) => {
+                STATUS_CLASS_KEYS.forEach((className) => badge.classList.remove(className));
+                badge.classList.add(...classes);
+                badge.textContent = normalized.charAt(0).toUpperCase() + normalized.slice(1);
+            });
+        }
+
+        function toggleStartButton(sessionId, shouldEnable) {
+            document.querySelectorAll(`[data-session-start="${sessionId}"]`).forEach((button) => {
+                button.disabled = !shouldEnable;
+                if (shouldEnable) {
+                    button.classList.remove('opacity-60', 'pointer-events-none');
+                } else {
+                    button.classList.add('opacity-60', 'pointer-events-none');
+                }
+            });
+        }
+
+        function setStatusMessage(message, tone = 'info') {
+            const statusEl = document.getElementById('qrStatusMessage');
+            if (!statusEl) {
+                return;
+            }
+
+            statusEl.classList.remove('text-gray-300', 'text-green-300', 'text-yellow-300', 'text-red-300');
+
+            const toneClassMap = {
+                info: 'text-gray-300',
+                success: 'text-green-300',
+                warning: 'text-yellow-300',
+                error: 'text-red-300',
+            };
+
+            statusEl.classList.add(toneClassMap[tone] || 'text-gray-300');
+            statusEl.textContent = message;
+        }
+
+        function renderQrPlaceholder(message, tone = 'info') {
+            const qrCodeContainer = document.getElementById('qrCodeContainer');
+            if (!qrCodeContainer) {
+                return;
+            }
+
+            const toneIconMap = {
+                info: 'text-gray-400',
+                warning: 'text-yellow-400',
+                error: 'text-red-400',
+                success: 'text-green-400',
+            };
+
+            const toneTextMap = {
+                info: 'text-gray-300',
+                warning: 'text-yellow-300',
+                error: 'text-red-300',
+                success: 'text-green-300',
+            };
+
+            qrCodeContainer.innerHTML = '';
+
+            const outer = document.createElement('div');
+            outer.className = 'w-48 h-48 md:w-64 md:h-64 bg-gray-700/80 border-2 border-dashed border-gray-600 rounded-xl mx-auto flex items-center justify-center backdrop-blur-sm';
+
+            const inner = document.createElement('div');
+            inner.className = 'text-center px-4';
+
+            const icon = document.createElement('svg');
+            icon.setAttribute('fill', 'none');
+            icon.setAttribute('stroke', 'currentColor');
+            icon.setAttribute('viewBox', '0 0 24 24');
+            icon.className = `w-12 h-12 mx-auto mb-3 ${tone === 'info' ? 'animate-pulse' : ''} ${toneIconMap[tone] || 'text-gray-400'}`.trim();
+            icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>';
+
+            const text = document.createElement('span');
+            text.className = `text-sm ${toneTextMap[tone] || 'text-gray-300'}`;
+            text.textContent = message;
+
+            inner.appendChild(icon);
+            inner.appendChild(text);
+            outer.appendChild(inner);
+            qrCodeContainer.appendChild(outer);
+        }
+
+        function stopQrPolling() {
+            if (qrInterval) {
+                clearInterval(qrInterval);
+                qrInterval = null;
+            }
+            if (qrCountdownInterval) {
+                clearInterval(qrCountdownInterval);
+                qrCountdownInterval = null;
+            }
+            if (qrExpiryTimeout) {
+                clearTimeout(qrExpiryTimeout);
+                qrExpiryTimeout = null;
+            }
+            if (qrAutoCloseTimeout) {
+                clearTimeout(qrAutoCloseTimeout);
+                qrAutoCloseTimeout = null;
+            }
+        }
+
+        function resetQrModalView() {
+            renderQrPlaceholder(QR_WAITING_PLACEHOLDER, 'info');
+            setStatusMessage(QR_DEFAULT_MESSAGE, 'info');
+        }
 
         function showQrModal(sessionId) {
+            stopQrPolling();
+
             document.getElementById('qrModal').classList.remove('hidden');
             document.getElementById('qrModal').classList.add('flex');
 
-            const fetchQr = () => {
-                fetch(`/sessions/${sessionId}/qr`)
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.qr_code) {
-                            document.getElementById('qrCodeContainer').innerHTML =
-                                `<img src="${data.qr_code}" alt="QR Code" class="w-48 h-48 md:w-64 md:h-64 mx-auto">`;
-                        } else {
-                            document.getElementById('qrCodeContainer').innerHTML =
-                                '<div class="w-48 h-48 md:w-64 md:h-64 bg-gray-700 border border-gray-600 rounded-xl mx-auto flex items-center justify-center"><span class="text-gray-400">QR Code not available</span></div>';
-                        }
+            resetQrModalView();
 
-                        if (data.status === 'connected') {
-                            clearInterval(qrInterval);
-                            location.reload();
+            const scheduleAutoClose = (message, tone = 'warning', delay = 2500) => {
+                stopQrPolling();
+                setStatusMessage(message, tone);
+                if (qrAutoCloseTimeout) {
+                    clearTimeout(qrAutoCloseTimeout);
+                }
+                qrAutoCloseTimeout = setTimeout(() => {
+                    closeQrModal();
+                }, delay);
+            };
+
+            const scheduleExpiryCountdown = (expiresAtIso) => {
+                clearTimeout(qrExpiryTimeout);
+                clearTimeout(qrAutoCloseTimeout);
+                if (qrCountdownInterval) {
+                    clearInterval(qrCountdownInterval);
+                    qrCountdownInterval = null;
+                }
+
+                if (!expiresAtIso) {
+                    setStatusMessage(QR_DEFAULT_MESSAGE, 'info');
+                    return;
+                }
+
+                const expiryTime = Date.parse(expiresAtIso);
+
+                if (Number.isNaN(expiryTime)) {
+                    setStatusMessage(QR_DEFAULT_MESSAGE, 'info');
+                    return;
+                }
+
+                const updateCountdown = () => {
+                    const remaining = expiryTime - Date.now();
+
+                    if (remaining <= 0) {
+                        if (qrCountdownInterval) {
+                            clearInterval(qrCountdownInterval);
+                            qrCountdownInterval = null;
                         }
-                    })
-                    .catch(error => {
-                        console.error('Error fetching QR code:', error);
-                        document.getElementById('qrCodeContainer').innerHTML =
-                            '<div class="w-48 h-48 md:w-64 md:h-64 bg-gray-700 border border-gray-600 rounded-xl mx-auto flex items-center justify-center"><span class="text-red-400">Error loading QR Code</span></div>';
-                    });
+                        updateSessionStatusBadge(sessionId, 'disconnected');
+                        toggleStartButton(sessionId, true);
+                        scheduleAutoClose('QR code expired. Start the session again to generate a new code.', 'warning');
+                        return;
+                    }
+
+                    const seconds = Math.ceil(remaining / 1000);
+                    setStatusMessage(`Scan the QR code within ${seconds} seconds to connect this device.`, 'info');
+                };
+
+                updateCountdown();
+                qrCountdownInterval = setInterval(updateCountdown, 1000);
+
+                const expiryDelay = Math.max(expiryTime - Date.now(), 0);
+                qrExpiryTimeout = setTimeout(() => {
+                    if (qrCountdownInterval) {
+                        clearInterval(qrCountdownInterval);
+                        qrCountdownInterval = null;
+                    }
+                    updateSessionStatusBadge(sessionId, 'disconnected');
+                    toggleStartButton(sessionId, true);
+                    scheduleAutoClose('QR code expired. Start the session again to generate a new code.', 'warning');
+                }, expiryDelay);
+            };
+
+            const fetchQr = async () => {
+                try {
+                    const response = await fetch(`/sessions/${sessionId}/qr`);
+                    let payload = {};
+
+                    try {
+                        payload = await response.json();
+                    } catch (error) {
+                        payload = {};
+                    }
+
+                    if (!response.ok) {
+                        const message = payload?.error || 'Failed to load QR code.';
+                        renderQrPlaceholder(message, response.status === 409 ? 'warning' : 'error');
+                        if (response.status === 409) {
+                            updateSessionStatusBadge(sessionId, 'disconnected');
+                            toggleStartButton(sessionId, true);
+                        }
+                        scheduleAutoClose(message, response.status === 409 ? 'warning' : 'error');
+                        return;
+                    }
+
+                    const { qr_code: qrCode, status, expires_at: expiresAt } = payload;
+
+                    if (status) {
+                        updateSessionStatusBadge(sessionId, status);
+                        toggleStartButton(sessionId, status === 'disconnected');
+                    }
+
+                    if (status === 'connected') {
+                        renderQrPlaceholder('Device linked successfully!', 'success');
+                        setStatusMessage('Device connected successfully. Refreshing dashboard...', 'success');
+                        stopQrPolling();
+                        qrAutoCloseTimeout = setTimeout(() => {
+                            location.reload();
+                        }, 1000);
+                        return;
+                    }
+
+                    if (qrCode) {
+                        const qrCodeContainer = document.getElementById('qrCodeContainer');
+                        if (qrCodeContainer) {
+                            qrCodeContainer.innerHTML = `<img src="${qrCode}" alt="QR Code" class="w-48 h-48 md:w-64 md:h-64 mx-auto">`;
+                        }
+                    } else {
+                        renderQrPlaceholder(QR_WAITING_PLACEHOLDER, 'info');
+                    }
+
+                    if (status === 'connecting') {
+                        scheduleExpiryCountdown(expiresAt);
+                    } else if (status === 'disconnected') {
+                        renderQrPlaceholder('The QR code expired or the session stopped. Start the session again to generate a new code.', 'warning');
+                        scheduleAutoClose('The QR code expired or the session stopped. Start the session again to generate a new code.', 'warning');
+                    } else if (!status) {
+                        setStatusMessage(QR_DEFAULT_MESSAGE, 'info');
+                    }
+                } catch (error) {
+                    console.error('Error fetching QR code:', error);
+                    renderQrPlaceholder('Error loading QR code. Please try again.', 'error');
+                    scheduleAutoClose('Unable to load the QR code. Please try again.', 'error');
+                }
             };
 
             fetchQr();
@@ -1503,12 +1734,16 @@
         }
 
         function closeQrModal() {
-            clearInterval(qrInterval);
+            stopQrPolling();
             document.getElementById('qrModal').classList.add('hidden');
             document.getElementById('qrModal').classList.remove('flex');
+            resetQrModalView();
         }
 
         function startSession(sessionId) {
+            updateSessionStatusBadge(sessionId, 'connecting');
+            toggleStartButton(sessionId, false);
+
             fetch(`/sessions/${sessionId}/start`, {
                 method: 'POST',
                 headers: {
@@ -1516,18 +1751,35 @@
                     'Content-Type': 'application/json',
                 },
             })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    location.reload();
-                } else {
+                .then(async (response) => {
+                    let data = {};
+                    try {
+                        data = await response.json();
+                    } catch (error) {
+                        data = {};
+                    }
+
+                    if (response.ok && data.success) {
+                        showQrModal(sessionId);
+                        return;
+                    }
+
+                    const message = data.error || 'Failed to start session';
+                    if (message.toLowerCase().includes('already connected')) {
+                        updateSessionStatusBadge(sessionId, 'connected');
+                        toggleStartButton(sessionId, false);
+                    } else {
+                        updateSessionStatusBadge(sessionId, 'disconnected');
+                        toggleStartButton(sessionId, true);
+                    }
+                    alert(message);
+                })
+                .catch((error) => {
+                    console.error('Error:', error);
+                    updateSessionStatusBadge(sessionId, 'disconnected');
+                    toggleStartButton(sessionId, true);
                     alert('Failed to start session');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('Failed to start session');
-            });
+                });
         }
 
         function stopSession(sessionId) {
