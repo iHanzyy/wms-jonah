@@ -12,6 +12,7 @@ const {
 } = require('../services/sessionManager');
 
 const prisma = new PrismaClient();
+const STALE_QR_THRESHOLD_MS = 2 * 60 * 1000;
 
 /**
  * Get all sessions
@@ -377,7 +378,8 @@ async function getSessionQR(req, res, next) {
       where: { id: sessionId },
       select: {
         qrCode: true,
-        status: true
+        status: true,
+        updatedAt: true
       }
     });
 
