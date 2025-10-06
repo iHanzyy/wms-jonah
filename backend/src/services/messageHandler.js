@@ -36,11 +36,17 @@ async function processIncomingMessage(sessionId, msg, isMention = false) {
 
     const hasWebhook = Boolean(session.webhookUrl) || session.webhooks.length > 0;
     const isGroupMessage = msg.from.endsWith('@g.us') || msg.to?.endsWith('@g.us');
-    const shouldSendWebhook = hasWebhook && (!isGroupMessage || isMention);
+    const isOutboundMessage = Boolean(msg.fromMe);
+    const shouldSendWebhook =
+      hasWebhook && !isOutboundMessage && (!isGroupMessage || isMention);
 
     if (!hasWebhook) {
       logger.debug(
         `Session ${sessionId} has no webhook configured, storing message without webhook dispatch`
+      );
+    } else if (isOutboundMessage) {
+      logger.debug(
+        `Outbound message ${msg.id.id} captured for session ${sessionId}; webhook dispatch skipped`
       );
     } else if (isGroupMessage && !isMention) {
       logger.debug(
