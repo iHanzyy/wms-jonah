@@ -33,16 +33,35 @@ async function processIncomingMessage(sessionId, msg, isMention = false) {
       return;
     }
 
-    // Skip if no webhook is configured
-    if (!session.webhookUrl && session.webhooks.length === 0) {
-      logger.debug(`Session ${sessionId} has no webhook configured, skipping message`);
-      return;
+    const hasWebhook = Boolean(session.webhookUrl) || session.webhooks.length > 0;
+    const isGroupMessage = msg.from.endsWith('@g.us') || msg.to?.endsWith('@g.us');
+    const shouldSendWebhook = hasWebhook && (!isGroupMessage || isMention);
+
+    if (!hasWebhook) {
+      logger.debug(
+        `Session ${sessionId} has no webhook configured, storing message without webhook dispatch`
+      );
+    } else if (isGroupMessage && !isMention) {
+      logger.debug(
+        `Group message captured for session ${sessionId} without mention; webhook dispatch skipped`
+      );
     }
 
-    // Skip group messages without mention if not explicitly handled
-    if (msg.from.endsWith('@g.us') && !isMention) {
-      logger.debug(`Skipping group message without mention for session ${sessionId}`);
-      return;
+    const existingMessage = await prisma.message.findUnique({
+      where: {
+        sessionId_messageId: {
+          sessionId,
+          messageId: msg.id.id
+        }
+      }
+    });
+
+    if (existingMessage) {
+      logger.debug(
+        `Message ${msg.id.id} already recorded for session ${sessionId}, skipping duplicate save`
+      );
+
+      return existingMessage;
     }
 
     // Get message details
@@ -50,13 +69,20 @@ async function processIncomingMessage(sessionId, msg, isMention = false) {
     const contact = await msg.getContact();
     
     // Prepare message data
+    const chatId = chat.isGroup ? chat.id._serialized : null;
+    const chatName = chat.name || chat.formattedTitle || contact.name || contact.pushname || null;
+    const contactName = contact.name || contact.pushname || contact.number || null;
+
     const messageData = {
       sessionId,
       messageId: msg.id.id,
       fromNumber: msg.from,
       toNumber: msg.to || null,
-      contactName: contact.name || contact.pushname || null,
-      groupId: chat.isGroup ? chat.id._serialized : null,
+      contactName,
+      groupId: chatId,
+      chatName,
+      author: msg.author || null,
+      fromMe: Boolean(msg.fromMe),
       messageType: msg.type,
       content: msg.body,
       timestamp: new Date(msg.timestamp * 1000),
@@ -81,7 +107,9 @@ async function processIncomingMessage(sessionId, msg, isMention = false) {
     }
 
     // Send to webhook
-    await sendToWebhook(session, savedMessage, media);
+    if (shouldSendWebhook) {
+      await sendToWebhook(session, savedMessage, media);
+    }
 
     return savedMessage;
   } catch (error) {
@@ -389,17 +417,43 @@ async function sendMessage(sessionId, to, content, options = {}) {
       msg = await session.client.sendMessage(chatId, outboundContent);
     }
 
+    let chat = null;
+    let contact = null;
+
+    try {
+      chat = await msg.getChat();
+    } catch (error) {
+      logger.warn(`Unable to load chat info for outbound message ${msg.id.id}:`, error);
+    }
+
+    try {
+      contact = await msg.getContact();
+    } catch (error) {
+      logger.warn(`Unable to load contact info for outbound message ${msg.id.id}:`, error);
+    }
+
+    const persistedGroupId = chat && chat.isGroup ? chat.id._serialized : null;
+    const chatName = chat
+      ? chat.name || chat.formattedTitle || null
+      : null;
+    const contactName = !chat || chat.isGroup
+      ? contact?.name || contact?.pushname || null
+      : contact?.name || contact?.pushname || contact?.number || null;
+
     const messageData = {
       sessionId,
       messageId: msg.id.id,
       fromNumber: msg.from,
       toNumber: msg.to,
-      contactName: null,
-      groupId: null,
+      contactName,
+      groupId: persistedGroupId,
+      chatName,
+      author: msg.author || null,
+      fromMe: true,
       messageType: msg.type || (mediaOptions ? mediaOptions.type : 'chat'),
       content: outboundContent,
-      timestamp: new Date(),
-      webhookSent: true
+      timestamp: msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),
+      webhookSent: false
     };
 
     const savedMessage = await prisma.message.create({

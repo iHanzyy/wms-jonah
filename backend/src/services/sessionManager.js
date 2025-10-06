@@ -237,6 +237,18 @@ async function initializeSession(sessionId) {
       }
     });
 
+    client.on('message_create', async (msg) => {
+      try {
+        if (!msg.fromMe) {
+          return;
+        }
+
+        await processIncomingMessage(sessionId, msg, false);
+      } catch (error) {
+        logger.error(`Error processing outbound message for session ${sessionId}:`, error);
+      }
+    });
+
     // Initialize the client
     await client.initialize();
 
@@ -329,10 +341,178 @@ async function closeSession(sessionId) {
   }
 }
 
+function normalizeChatName(chat) {
+  if (!chat) {
+    return 'Unknown chat';
+  }
+
+  if (chat.name) {
+    return chat.name;
+  }
+
+  if (chat.formattedTitle) {
+    return chat.formattedTitle;
+  }
+
+  if (chat.isGroup && chat.id && chat.id.user) {
+    return chat.id.user;
+  }
+
+  if (chat.contact && chat.contact.pushname) {
+    return chat.contact.pushname;
+  }
+
+  if (chat.id && chat.id.user) {
+    return chat.id.user;
+  }
+
+  return chat.id?._serialized || 'Unknown chat';
+}
+
+function extractLastMessageSummary(chat) {
+  const lastMessage = chat?.lastMessage;
+
+  if (!lastMessage) {
+    return {
+      preview: null,
+      timestamp: null,
+      fromMe: null
+    };
+  }
+
+  return {
+    preview: typeof lastMessage.body === 'string' ? lastMessage.body : null,
+    timestamp:
+      typeof lastMessage.timestamp === 'number'
+        ? new Date(lastMessage.timestamp * 1000)
+        : null,
+    fromMe: Boolean(lastMessage.fromMe)
+  };
+}
+
+/**
+ * Get the available chats for a session (groups and direct chats)
+ * @param {number} sessionId - The session ID
+ * @returns {Promise<object[]>}
+ */
+async function getSessionChats(sessionId) {
+  const runtimeSession = sessions.get(sessionId);
+
+  if (!runtimeSession) {
+    throw new Error(`Session ${sessionId} is not connected`);
+  }
+
+  const chats = await runtimeSession.client.getChats();
+
+  return chats
+    .map((chat) => {
+      const lastMessageSummary = extractLastMessageSummary(chat);
+
+      return {
+        id: chat.id._serialized,
+        name: normalizeChatName(chat),
+        isGroup: Boolean(chat.isGroup),
+        unreadCount: Number.isFinite(chat.unreadCount) ? chat.unreadCount : 0,
+        isMuted: Boolean(chat.isMuted),
+        isArchived: Boolean(chat.archive),
+        lastMessagePreview: lastMessageSummary.preview,
+        lastMessageTimestamp: lastMessageSummary.timestamp,
+        lastMessageFromMe: lastMessageSummary.fromMe
+      };
+    })
+    .sort((a, b) => {
+      const aTime = a.lastMessageTimestamp ? a.lastMessageTimestamp.getTime() : 0;
+      const bTime = b.lastMessageTimestamp ? b.lastMessageTimestamp.getTime() : 0;
+      return bTime - aTime;
+    });
+}
+
+/**
+ * Get all WhatsApp groups for a session
+ * @param {number} sessionId - The session ID
+ * @returns {Promise<object[]>}
+ */
+async function getSessionGroups(sessionId) {
+  const runtimeSession = sessions.get(sessionId);
+
+  if (!runtimeSession) {
+    throw new Error(`Session ${sessionId} is not connected`);
+  }
+
+  const chats = await runtimeSession.client.getChats();
+
+  return chats
+    .filter((chat) => chat.isGroup)
+    .map((chat) => ({
+      id: chat.id._serialized,
+      name: normalizeChatName(chat),
+      participants: Array.isArray(chat.participants) ? chat.participants.length : 0
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Get members for a specific WhatsApp group
+ * @param {number} sessionId - The session ID
+ * @param {string} groupId - The group chat ID
+ * @returns {Promise<object[]>}
+ */
+async function getGroupParticipants(sessionId, groupId) {
+  const runtimeSession = sessions.get(sessionId);
+
+  if (!runtimeSession) {
+    throw new Error(`Session ${sessionId} is not connected`);
+  }
+
+  const normalizedGroupId = groupId.endsWith('@g.us') ? groupId : `${groupId}@g.us`;
+  const chat = await runtimeSession.client.getChatById(normalizedGroupId);
+
+  if (!chat || !chat.isGroup) {
+    throw new Error(`Group ${groupId} not found for session ${sessionId}`);
+  }
+
+  if (!Array.isArray(chat.participants) || chat.participants.length === 0) {
+    logger.warn(`Group ${normalizedGroupId} has no participant metadata loaded`);
+  }
+
+  const participants = await Promise.all(
+    (chat.participants || []).map(async (participant) => {
+      try {
+        const contact = await runtimeSession.client.getContactById(participant.id._serialized);
+        return {
+          id: participant.id._serialized,
+          number: contact?.number || participant.id.user,
+          name: contact?.name || contact?.pushname || contact?.shortName || participant.id.user,
+          isAdmin: Boolean(participant.isAdmin),
+          isSuperAdmin: Boolean(participant.isSuperAdmin)
+        };
+      } catch (error) {
+        logger.warn(
+          `Unable to load contact info for participant ${participant.id._serialized} in group ${normalizedGroupId}:`,
+          error
+        );
+
+        return {
+          id: participant.id._serialized,
+          number: participant.id.user,
+          name: participant.id.user,
+          isAdmin: Boolean(participant.isAdmin),
+          isSuperAdmin: Boolean(participant.isSuperAdmin)
+        };
+      }
+    })
+  );
+
+  return participants.sort((a, b) => a.number.localeCompare(b.number));
+}
+
 module.exports = {
   initializeSessionManager,
   initializeSession,
   getSession,
   getAllSessions,
-  closeSession
+  closeSession,
+  getSessionChats,
+  getSessionGroups,
+  getGroupParticipants
 };
