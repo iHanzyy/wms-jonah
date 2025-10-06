@@ -245,6 +245,21 @@ function extractReplies(data) {
     .filter(Boolean);
 }
 
+function resolveReplyTarget(message, explicitTarget) {
+  if (typeof explicitTarget === 'string') {
+    const trimmedTarget = explicitTarget.trim();
+    if (trimmedTarget !== '') {
+      return trimmedTarget;
+    }
+  }
+
+  if (message.fromMe) {
+    return message.toNumber || null;
+  }
+
+  return message.fromNumber;
+}
+
 /**
  * Send message to webhook
  * @param {object} session - The session object
