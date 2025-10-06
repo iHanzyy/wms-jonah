@@ -345,6 +345,38 @@ async function initializeSession(sessionId) {
   }
 }
 
+async function restartSession(sessionId) {
+  try {
+    const existingSession = sessions.get(sessionId);
+
+    if (existingSession) {
+      try {
+        await existingSession.client.destroy();
+      } catch (error) {
+        logger.warn(`Failed to destroy existing client for session ${sessionId}:`, error);
+      }
+
+      sessions.delete(sessionId);
+      typingStatus.delete(sessionId);
+    }
+
+    await prisma.session.update({
+      where: { id: sessionId },
+      data: {
+        status: 'connecting',
+        qrCode: null
+      }
+    });
+
+    logger.info(`Restarting session ${sessionId} to refresh QR code`);
+
+    return initializeSession(sessionId);
+  } catch (error) {
+    logger.error(`Failed to restart session ${sessionId}:`, error);
+    throw error;
+  }
+}
+
 /**
  * Get a WhatsApp session
  * @param {number} sessionId - The session ID
@@ -588,5 +620,6 @@ module.exports = {
   closeSession,
   getSessionChats,
   getSessionGroups,
-  getGroupParticipants
+  getGroupParticipants,
+  restartSession
 };
