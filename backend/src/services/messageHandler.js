@@ -245,6 +245,170 @@ function extractReplies(data) {
     .filter(Boolean);
 }
 
+function resolveReplyTarget(message, explicitTarget) {
+  if (typeof explicitTarget === 'string') {
+    const trimmedTarget = explicitTarget.trim();
+    if (trimmedTarget !== '') {
+      return trimmedTarget;
+    }
+  }
+
+  if (message.fromMe) {
+    return message.toNumber || null;
+  }
+
+  return message.fromNumber;
+}
+
+function normalizeWhatsAppId(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (trimmed.endsWith('@g.us')) {
+    return trimmed;
+  }
+
+  if (trimmed.endsWith('@s.whatsapp.net')) {
+    return `${trimmed.slice(0, -'@s.whatsapp.net'.length)}@c.us`;
+  }
+
+  if (trimmed.endsWith('@c.us')) {
+    return trimmed;
+  }
+
+  return `${trimmed}@c.us`;
+}
+
+function collectSessionSelfJids(sessionId, session) {
+  const { getSession } = require('./sessionManager');
+  const runtimeSession = getSession(sessionId);
+
+  const candidates = new Set();
+
+  const addCandidate = (candidate) => {
+    const normalized = normalizeWhatsAppId(candidate);
+    if (normalized) {
+      candidates.add(normalized);
+    }
+  };
+
+  try {
+    if (runtimeSession?.client?.info?.wid?._serialized) {
+      addCandidate(runtimeSession.client.info.wid._serialized);
+    }
+
+    if (runtimeSession?.client?.info?.me?._serialized) {
+      addCandidate(runtimeSession.client.info.me._serialized);
+    }
+  } catch (runtimeError) {
+    logger.debug(
+      `Unable to determine runtime identifiers for session ${sessionId}:`,
+      runtimeError
+    );
+  }
+
+  if (session?.sessionData) {
+    let data = session.sessionData;
+    if (typeof data === 'string') {
+      try {
+        data = JSON.parse(data);
+      } catch (parseError) {
+        logger.debug(
+          `Unable to parse sessionData for session ${sessionId}:`,
+          parseError
+        );
+        data = null;
+      }
+    }
+
+    if (data && typeof data === 'object') {
+      const potentialKeys = [
+        'wid',
+        'userId',
+        'whatsappId',
+        'self',
+        'phoneNumber',
+        'me'
+      ];
+
+      for (const key of potentialKeys) {
+        const value = data[key];
+
+        if (!value) {
+          continue;
+        }
+
+        if (typeof value === 'string') {
+          addCandidate(value);
+          continue;
+        }
+
+        if (value && typeof value === 'object') {
+          if (typeof value._serialized === 'string') {
+            addCandidate(value._serialized);
+          }
+
+          if (typeof value.id === 'string') {
+            addCandidate(value.id);
+          }
+        }
+      }
+    }
+  }
+
+  return candidates;
+}
+
+async function handleAutoReplies(session, message, replies, selfJids, contextLabel) {
+  if (!Array.isArray(replies) || replies.length === 0) {
+    return;
+  }
+
+  for (const reply of replies) {
+    const to = resolveReplyTarget(message, reply.to);
+    if (!to) {
+      logger.debug(
+        `Skipping auto-reply for message ${message.id} because the target could not be determined (${contextLabel})`
+      );
+      continue;
+    }
+
+    if (message.fromMe && typeof reply.to !== 'string') {
+      logger.debug(
+        `Skipping auto-reply for message ${message.id} because it originated from the session and no explicit target was provided (${contextLabel})`
+      );
+      continue;
+    }
+
+    const normalizedTarget = normalizeWhatsAppId(to);
+
+    if (normalizedTarget && selfJids.has(normalizedTarget)) {
+      logger.debug(
+        `Skipping auto-reply for message ${message.id} to ${normalizedTarget} because it matches the session's own identifier (${contextLabel})`
+      );
+      continue;
+    }
+
+    try {
+      await sendMessage(session.id, to, reply.content);
+      logger.info(
+        `Auto-reply sent for message ${message.id} to ${to} (${contextLabel})`
+      );
+    } catch (replyError) {
+      logger.error(
+        `Error sending auto-reply for message ${message.id} (${contextLabel}):`,
+        replyError
+      );
+    }
+  }
+}
+
 /**
  * Send message to webhook
  * @param {object} session - The session object
@@ -279,6 +443,8 @@ async function sendToWebhook(session, message, media = null) {
       message: messagePayload
     };
 
+    const selfJids = collectSessionSelfJids(session.id, session);
+
     // Send to session webhook if configured
     if (session.webhookUrl) {
       try {
@@ -300,20 +466,13 @@ async function sendToWebhook(session, message, media = null) {
         // If webhook returns replies, send them back to the original sender
         if (response.data) {
           const replies = extractReplies(response.data);
-          for (const reply of replies) {
-            const to = reply.to || message.fromNumber;
-            try {
-              await sendMessage(session.id, to, reply.content);
-              logger.info(
-                `Auto-reply sent for message ${message.id} to ${to}`
-              );
-            } catch (replyError) {
-              logger.error(
-                `Error sending auto-reply for message ${message.id}:`,
-                replyError
-              );
-            }
-          }
+          await handleAutoReplies(
+            session,
+            message,
+            replies,
+            selfJids,
+            'primary webhook'
+          );
         }
       } catch (error) {
         logger.error(`Error sending webhook for message ${message.id} to ${session.webhookUrl}:`, error);
@@ -338,20 +497,13 @@ async function sendToWebhook(session, message, media = null) {
 
           if (response.data) {
             const replies = extractReplies(response.data);
-            for (const reply of replies) {
-              const to = reply.to || message.fromNumber;
-              try {
-                await sendMessage(session.id, to, reply.content);
-                logger.info(
-                  `Auto-reply sent for message ${message.id} to ${to}`
-                );
-              } catch (replyError) {
-                logger.error(
-                  `Error sending auto-reply for message ${message.id}:`,
-                  replyError
-                );
-              }
-            }
+            await handleAutoReplies(
+              session,
+              message,
+              replies,
+              selfJids,
+              `webhook ${webhook.id || webhook.url}`
+            );
           }
         } catch (error) {
           logger.error(`Error sending webhook for message ${message.id} to ${webhook.url}:`, error);
