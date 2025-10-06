@@ -12,6 +12,82 @@ const fsp = fs.promises;
 const prisma = new PrismaClient();
 const sessions = new Map();
 const typingStatus = new Map(); // sessionId -> Map(chatId -> { isTyping, updatedAt })
+const qrExpiryTimers = new Map(); // sessionId -> Timeout
+const qrExpiryMeta = new Map(); // sessionId -> { expiresAt }
+
+const DEFAULT_QR_EXPIRY_MS = Number.parseInt(process.env.WA_QR_EXPIRY_MS || '', 10) || 60 * 1000;
+
+function clearQrExpiry(sessionId) {
+  const timer = qrExpiryTimers.get(sessionId);
+
+  if (timer) {
+    clearTimeout(timer);
+    qrExpiryTimers.delete(sessionId);
+  }
+
+  qrExpiryMeta.delete(sessionId);
+}
+
+async function handleQrExpiry(sessionId) {
+  qrExpiryTimers.delete(sessionId);
+  const meta = qrExpiryMeta.get(sessionId);
+
+  // Keep the expiry metadata so the controller can explain why the modal closed
+  if (!meta) {
+    return;
+  }
+
+  logger.info(`QR code for session ${sessionId} expired without being scanned. Cleaning up.`);
+
+  try {
+    await updateSessionRecord(sessionId, {
+      status: 'disconnected',
+      qrCode: null
+    });
+  } catch (error) {
+    logger.warn(`Failed to update session ${sessionId} when expiring QR code:`, error);
+  }
+
+  const runtime = sessions.get(sessionId);
+
+  if (runtime) {
+    try {
+      await runtime.client.destroy();
+    } catch (error) {
+      logger.warn(`Failed to destroy WhatsApp client for session ${sessionId} during QR expiry:`, error);
+    }
+
+    sessions.delete(sessionId);
+    typingStatus.delete(sessionId);
+  }
+}
+
+function scheduleQrExpiry(sessionId) {
+  clearQrExpiry(sessionId);
+
+  const expiresAt = Date.now() + DEFAULT_QR_EXPIRY_MS;
+
+  qrExpiryMeta.set(sessionId, { expiresAt });
+
+  const timer = setTimeout(() => {
+    handleQrExpiry(sessionId).catch((error) => {
+      logger.error(`QR expiry handler failed for session ${sessionId}:`, error);
+    });
+    clearQrExpiry(sessionId);
+  }, DEFAULT_QR_EXPIRY_MS);
+
+  qrExpiryTimers.set(sessionId, timer);
+}
+
+function getQrExpiryMeta(sessionId) {
+  const meta = qrExpiryMeta.get(sessionId);
+
+  if (!meta) {
+    return null;
+  }
+
+  return { ...meta };
+}
 
 async function walkDirectory(basePath, relative = '') {
   const entries = [];
@@ -353,6 +429,7 @@ async function initializeSession(sessionId) {
           logger.error(`Session ${sessionId} not found when saving QR code`);
         } else {
           logger.info(`QR code generated for session ${sessionId}`);
+          scheduleQrExpiry(sessionId);
         }
       } catch (error) {
         logger.error(`Failed to generate QR code for session ${sessionId}:`, error);
@@ -361,7 +438,7 @@ async function initializeSession(sessionId) {
 
     client.on('ready', async () => {
       logger.info(`Session ${sessionId} is ready`);
-      await clearPendingArtifacts();
+      clearQrExpiry(sessionId);
       await updateSessionRecord(sessionId, {
         status: 'connected',
         qrCode: null,
@@ -377,6 +454,7 @@ async function initializeSession(sessionId) {
 
     client.on('authenticated', async () => {
       logger.info(`Session ${sessionId} authenticated`);
+      clearQrExpiry(sessionId);
 
       await clearPendingArtifacts();
       await updateSessionRecord(sessionId, {
@@ -396,7 +474,7 @@ async function initializeSession(sessionId) {
       logger.info(`Session ${sessionId} state changed to ${state}`);
 
       if (state === 'CONNECTED') {
-        await clearPendingArtifacts();
+        clearQrExpiry(sessionId);
         await updateSessionRecord(sessionId, {
           status: 'connected',
           qrCode: null,
@@ -413,8 +491,8 @@ async function initializeSession(sessionId) {
 
     client.on('auth_failure', async (msg) => {
       logger.error(`Session ${sessionId} authentication failed: ${msg}`);
+      clearQrExpiry(sessionId);
 
-      await clearPendingArtifacts();
       await updateSessionRecord(sessionId, {
         status: 'disconnected',
         qrCode: null
@@ -427,8 +505,8 @@ async function initializeSession(sessionId) {
 
     client.on('disconnected', async (reason) => {
       logger.info(`Session ${sessionId} disconnected: ${reason}`);
+      clearQrExpiry(sessionId);
 
-      await clearPendingArtifacts();
       await updateSessionRecord(sessionId, {
         status: 'disconnected',
         qrCode: null
@@ -520,6 +598,7 @@ async function restartSession(sessionId) {
     const existingSession = sessions.get(sessionId);
 
     if (existingSession) {
+      clearQrExpiry(sessionId);
       try {
         await existingSession.client.destroy();
       } catch (error) {
@@ -579,11 +658,12 @@ async function closeSession(sessionId) {
 
     // Logout and close the client
     await session.client.destroy();
-    
+
     // Remove session from map
     sessions.delete(sessionId);
     typingStatus.delete(sessionId);
-    
+    clearQrExpiry(sessionId);
+
     // Update session status in database
     await prisma.session.update({
       where: { id: sessionId },
@@ -602,6 +682,7 @@ async function closeSession(sessionId) {
     // Force remove session from map
     sessions.delete(sessionId);
     typingStatus.delete(sessionId);
+    clearQrExpiry(sessionId);
     
     // Update session status in database
     await prisma.session.update({
@@ -792,5 +873,6 @@ module.exports = {
   getSessionChats,
   getSessionGroups,
   getGroupParticipants,
-  restartSession
+  restartSession,
+  getQrExpiryMeta
 };

@@ -48,13 +48,7 @@ class DashboardController extends Controller
             ]);
 
             if ($response->successful()) {
-                $session->update(['status' => 'connecting']);
-
-                try {
-                    Http::post(config('app.backend_url') . '/api/sessions/' . $session->id . '/start');
-                } catch (\Exception $e) {
-                    logger()->error('Failed to start session: ' . $e->getMessage());
-                }
+                $session->update(['status' => 'disconnected']);
             }
         } catch (\Exception $e) {
             // Log error but don't fail the creation
@@ -113,9 +107,9 @@ class DashboardController extends Controller
 
         try {
             $response = Http::get(config('app.backend_url') . '/api/sessions/' . $session->id . '/qr');
-            
-            if ($response->successful()) {
-                $payload = $response->json();
+            $payload = $response->json();
+
+            if ($response->successful() && ($payload['status'] ?? null) === 'success') {
                 $data = $payload['data'] ?? [];
 
                 $session->update([
@@ -126,8 +120,17 @@ class DashboardController extends Controller
                 return response()->json([
                     'qr_code' => $session->qr_code,
                     'status' => $session->status,
+                    'expires_at' => $data['expires_at'] ?? null,
                 ]);
             }
+
+            $message = $payload['message'] ?? 'Failed to get QR code';
+            $status = $payload['status'] ?? 'error';
+
+            return response()->json([
+                'error' => $message,
+                'status' => $status,
+            ], $response->status());
         } catch (\Exception $e) {
             logger()->error('Failed to get QR code: ' . $e->getMessage());
         }
@@ -141,11 +144,19 @@ class DashboardController extends Controller
 
         try {
             $response = Http::post(config('app.backend_url') . '/api/sessions/' . $session->id . '/start');
-            
-            if ($response->successful()) {
+            $payload = $response->json();
+
+            if ($response->successful() && ($payload['status'] ?? null) === 'success') {
                 $session->update(['status' => 'connecting']);
                 return response()->json(['success' => true]);
             }
+            $message = $payload['message'] ?? 'Failed to start session';
+            $status = $payload['status'] ?? 'error';
+
+            return response()->json([
+                'error' => $message,
+                'status' => $status,
+            ], $response->status());
         } catch (\Exception $e) {
             logger()->error('Failed to start session: ' . $e->getMessage());
         }

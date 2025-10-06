@@ -7,7 +7,8 @@ const {
   getSessionChats,
   getSessionGroups,
   getGroupParticipants,
-  restartSession
+  restartSession,
+  getQrExpiryMeta
 } = require('../services/sessionManager');
 
 const prisma = new PrismaClient();
@@ -246,35 +247,42 @@ async function deleteSession(req, res, next) {
 async function startSession(req, res, next) {
   try {
     const { id } = req.params;
+    const sessionId = parseInt(id, 10);
+
+    if (Number.isNaN(sessionId)) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Invalid session ID'
+      });
+    }
 
     // Check if session exists
     const existingSession = await prisma.session.findUnique({
-      where: { id: parseInt(id) }
+      where: { id: sessionId }
     });
 
     if (!existingSession) {
       return res.status(404).json({
         status: 'error',
-        message: `Session with ID ${id} not found`
+        message: `Session with ID ${sessionId} not found`
       });
     }
 
-    // Initialize session
-    await initializeSession(parseInt(id));
+    if (existingSession.status === 'connected') {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Session is already connected'
+      });
+    }
 
-    // Update session status
-    await prisma.session.update({
-      where: { id: parseInt(id) },
-      data: {
-        status: 'connecting'
-      }
-    });
+    // Restart (or start) the session to generate a fresh QR code
+    await restartSession(sessionId);
 
-    logger.info(`Session ${id} started`);
+    logger.info(`Session ${sessionId} started`);
 
     res.status(200).json({
       status: 'success',
-      message: `Session ${id} started successfully`
+      message: `Session ${sessionId} started successfully`
     });
   } catch (error) {
     logger.error(`Error starting session ${req.params.id}:`, error);
@@ -349,12 +357,20 @@ async function getSessionQR(req, res, next) {
       });
     }
 
-    // Get session
-    const session = getSession(sessionId);
+    if (existingSession.status === 'disconnected') {
+      return res.status(409).json({
+        status: 'error',
+        message: 'Session is not started. Press the start button to generate a QR code.'
+      });
+    }
 
-    // If session is not initialized, initialize it
-    if (!session) {
-      await initializeSession(sessionId);
+    const runtimeSession = getSession(sessionId);
+
+    if (!runtimeSession && existingSession.status !== 'connecting') {
+      return res.status(409).json({
+        status: 'error',
+        message: 'Session is not active. Start the session to request a QR code.'
+      });
     }
 
     // Get QR code from database (it's updated by the session manager)
@@ -367,42 +383,16 @@ async function getSessionQR(req, res, next) {
       }
     });
 
-    let qrCode = sessionState?.qrCode || null;
-    let statusValue = sessionState?.status || existingSession.status;
-
-    const lastUpdateDate = sessionState?.updatedAt || existingSession.updatedAt;
-    const lastUpdate = lastUpdateDate ? new Date(lastUpdateDate).getTime() : null;
-    const qrAge = lastUpdate ? Date.now() - lastUpdate : null;
-    const qrIsStale =
-      Boolean(qrCode) &&
-      statusValue === 'connecting' &&
-      typeof qrAge === 'number' &&
-      qrAge > STALE_QR_THRESHOLD_MS;
-
-    if (qrIsStale) {
-      logger.info(
-        `QR code for session ${sessionId} is ${qrAge}ms old and stale. Restarting session to generate a fresh code.`
-      );
-
-      await restartSession(sessionId);
-
-      const refreshedState = await prisma.session.findUnique({
-        where: { id: sessionId },
-        select: {
-          qrCode: true,
-          status: true
-        }
-      });
-
-      qrCode = refreshedState?.qrCode || null;
-      statusValue = refreshedState?.status || 'connecting';
-    }
+    const qrCode = sessionState?.qrCode || null;
+    const statusValue = sessionState?.status || existingSession.status;
+    const qrMeta = getQrExpiryMeta(sessionId);
 
     res.status(200).json({
       status: 'success',
       data: {
         qr_code: qrCode,
-        status: statusValue
+        status: statusValue,
+        expires_at: qrMeta?.expiresAt ? new Date(qrMeta.expiresAt).toISOString() : null
       }
     });
   } catch (error) {
