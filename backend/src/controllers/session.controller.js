@@ -6,7 +6,9 @@ const {
   closeSession,
   getSessionChats,
   getSessionGroups,
-  getGroupParticipants
+  getGroupParticipants,
+  restartSession,
+  getQrExpiryMeta
 } = require('../services/sessionManager');
 
 const prisma = new PrismaClient();
@@ -192,10 +194,18 @@ async function updateSession(req, res, next) {
 async function deleteSession(req, res, next) {
   try {
     const { id } = req.params;
+    const sessionId = parseInt(id, 10);
+
+    if (Number.isNaN(sessionId)) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Invalid session ID'
+      });
+    }
 
     // Check if session exists
     const existingSession = await prisma.session.findUnique({
-      where: { id: parseInt(id) }
+      where: { id: sessionId }
     });
 
     if (!existingSession) {
@@ -236,35 +246,42 @@ async function deleteSession(req, res, next) {
 async function startSession(req, res, next) {
   try {
     const { id } = req.params;
+    const sessionId = parseInt(id, 10);
+
+    if (Number.isNaN(sessionId)) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Invalid session ID'
+      });
+    }
 
     // Check if session exists
     const existingSession = await prisma.session.findUnique({
-      where: { id: parseInt(id) }
+      where: { id: sessionId }
     });
 
     if (!existingSession) {
       return res.status(404).json({
         status: 'error',
-        message: `Session with ID ${id} not found`
+        message: `Session with ID ${sessionId} not found`
       });
     }
 
-    // Initialize session
-    await initializeSession(parseInt(id));
+    if (existingSession.status === 'connected') {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Session is already connected'
+      });
+    }
 
-    // Update session status
-    await prisma.session.update({
-      where: { id: parseInt(id) },
-      data: {
-        status: 'connecting'
-      }
-    });
+    // Restart (or start) the session to generate a fresh QR code
+    await restartSession(sessionId);
 
-    logger.info(`Session ${id} started`);
+    logger.info(`Session ${sessionId} started`);
 
     res.status(200).json({
       status: 'success',
-      message: `Session ${id} started successfully`
+      message: `Session ${sessionId} started successfully`
     });
   } catch (error) {
     logger.error(`Error starting session ${req.params.id}:`, error);
@@ -318,10 +335,18 @@ async function stopSession(req, res, next) {
 async function getSessionQR(req, res, next) {
   try {
     const { id } = req.params;
+    const sessionId = parseInt(id, 10);
+
+    if (Number.isNaN(sessionId)) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Invalid session ID'
+      });
+    }
 
     // Check if session exists
     const existingSession = await prisma.session.findUnique({
-      where: { id: parseInt(id) }
+      where: { id: sessionId }
     });
 
     if (!existingSession) {
@@ -331,28 +356,41 @@ async function getSessionQR(req, res, next) {
       });
     }
 
-    // Get session
-    const session = getSession(parseInt(id));
+    if (existingSession.status === 'disconnected') {
+      return res.status(409).json({
+        status: 'error',
+        message: 'Session is not started. Press the start button to generate a QR code.'
+      });
+    }
 
-    // If session is not initialized, initialize it
-    if (!session) {
-      await initializeSession(parseInt(id));
+    const runtimeSession = getSession(sessionId);
+
+    if (!runtimeSession && existingSession.status !== 'connecting') {
+      return res.status(409).json({
+        status: 'error',
+        message: 'Session is not active. Start the session to request a QR code.'
+      });
     }
 
     // Get QR code from database (it's updated by the session manager)
-    const updatedSession = await prisma.session.findUnique({
-      where: { id: parseInt(id) },
+    const sessionState = await prisma.session.findUnique({
+      where: { id: sessionId },
       select: {
         qrCode: true,
         status: true
       }
     });
 
+    const qrCode = sessionState?.qrCode || null;
+    const statusValue = sessionState?.status || existingSession.status;
+    const qrMeta = getQrExpiryMeta(sessionId);
+
     res.status(200).json({
       status: 'success',
       data: {
-        qr_code: updatedSession.qrCode,
-        status: updatedSession.status
+        qr_code: qrCode,
+        status: statusValue,
+        expires_at: qrMeta?.expiresAt ? new Date(qrMeta.expiresAt).toISOString() : null
       }
     });
   } catch (error) {
