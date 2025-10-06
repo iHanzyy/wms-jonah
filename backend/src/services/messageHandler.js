@@ -316,7 +316,13 @@ async function sendToWebhook(session, message, media = null) {
         if (response.data) {
           const replies = extractReplies(response.data);
           for (const reply of replies) {
-            const to = reply.to || message.fromNumber;
+            const to = resolveReplyTarget(message, reply.to);
+            if (!to) {
+              logger.debug(
+                `Skipping auto-reply for message ${message.id} because the target could not be determined`
+              );
+              continue;
+            }
             try {
               await sendMessage(session.id, to, reply.content);
               logger.info(
@@ -354,7 +360,13 @@ async function sendToWebhook(session, message, media = null) {
           if (response.data) {
             const replies = extractReplies(response.data);
             for (const reply of replies) {
-              const to = reply.to || message.fromNumber;
+              const to = resolveReplyTarget(message, reply.to);
+              if (!to) {
+                logger.debug(
+                  `Skipping auto-reply for message ${message.id} because the target could not be determined`
+                );
+                continue;
+              }
               try {
                 await sendMessage(session.id, to, reply.content);
                 logger.info(
