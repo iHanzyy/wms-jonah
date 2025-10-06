@@ -542,6 +542,50 @@
         </div>
     </div>
 
+    <style>
+        .typing-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .typing-indicator .typing-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 9999px;
+            background-color: rgba(255, 255, 255, 0.75);
+            opacity: 0.5;
+            animation: typingBounce 1.2s infinite ease-in-out;
+        }
+
+        .typing-indicator.typing-indicator-dark .typing-dot {
+            background-color: rgba(16, 185, 129, 0.85);
+        }
+
+        .typing-indicator .typing-dot:nth-child(1) {
+            animation-delay: 0s;
+        }
+
+        .typing-indicator .typing-dot:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-indicator .typing-dot:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typingBounce {
+            0%, 80%, 100% {
+                transform: translateY(0);
+                opacity: 0.5;
+            }
+            40% {
+                transform: translateY(-3px);
+                opacity: 1;
+            }
+        }
+    </style>
+
     <script>
         const backendApiBase = @json(config('app.backend_url') . '/api');
 
@@ -727,6 +771,7 @@
                         id: chat.id,
                         name: chat.name,
                         isGroup: Boolean(chat.isGroup),
+                        isTyping: Boolean(chat.isTyping),
                         unreadCount: Number.isFinite(chat.unreadCount) ? chat.unreadCount : 0,
                         isMuted: Boolean(chat.isMuted),
                         isArchived: Boolean(chat.isArchived),
@@ -735,6 +780,21 @@
                         lastMessageTimestamp: chat.lastMessageTimestamp || null,
                         messages: []
                     });
+                } else {
+                    const trackedConversation = conversationMap.get(chat.id);
+                    trackedConversation.isTyping = Boolean(chat.isTyping);
+                    if (Number.isFinite(chat.unreadCount)) {
+                        trackedConversation.unreadCount = chat.unreadCount;
+                    }
+                    if (chat.lastMessagePreview) {
+                        trackedConversation.lastMessagePreview = chat.lastMessagePreview;
+                    }
+                    if (chat.lastMessageFromMe !== undefined && chat.lastMessageFromMe !== null) {
+                        trackedConversation.lastMessageFromMe = chat.lastMessageFromMe;
+                    }
+                    if (chat.lastMessageTimestamp) {
+                        trackedConversation.lastMessageTimestamp = chat.lastMessageTimestamp;
+                    }
                 }
             });
 
@@ -750,6 +810,7 @@
                         isGroup: Boolean(message.groupId),
                         groupId: message.groupId || null,
                         name: resolveConversationName(message),
+                        isTyping: false,
                         unreadCount: 0,
                         isMuted: false,
                         isArchived: false,
@@ -776,6 +837,13 @@
                     conversation.lastMessagePreview = conversation.lastMessage.content || conversation.lastMessage.messageType || conversation.lastMessagePreview;
                     conversation.lastMessageTimestamp = conversation.lastMessage.timestamp || conversation.lastMessageTimestamp;
                     conversation.lastMessageFromMe = conversation.lastMessage.fromMe;
+                }
+
+                if (conversation.isTyping && conversation.lastMessageTimestamp) {
+                    const lastTimestamp = new Date(conversation.lastMessageTimestamp).getTime();
+                    if (!Number.isNaN(lastTimestamp) && Date.now() - lastTimestamp > 600000) {
+                        conversation.isTyping = false;
+                    }
                 }
 
                 conversation.avatar = buildAvatarInitials(conversation.name);
@@ -905,9 +973,23 @@
                 titleRow.appendChild(nameEl);
                 titleRow.appendChild(metaWrapper);
 
-                const previewEl = document.createElement('p');
-                previewEl.className = 'text-xs text-gray-400 truncate mt-1';
-                previewEl.textContent = resolveConversationPreview(conversation);
+                const previewEl = document.createElement('div');
+                previewEl.className = 'text-xs text-gray-400 truncate mt-1 flex items-center gap-2';
+                previewEl.style.minHeight = '16px';
+
+                if (conversation.isTyping) {
+                    previewEl.classList.remove('text-gray-400', 'truncate');
+                    previewEl.classList.add('text-emerald-300', 'font-medium');
+
+                    const indicator = createTypingIndicatorElement({ compact: true });
+                    previewEl.appendChild(indicator);
+
+                    const label = document.createElement('span');
+                    label.textContent = 'Typing…';
+                    previewEl.appendChild(label);
+                } else {
+                    previewEl.textContent = resolveConversationPreview(conversation);
+                }
 
                 content.appendChild(titleRow);
                 content.appendChild(previewEl);
@@ -965,6 +1047,10 @@
                 return '';
             }
 
+            if (conversation.isTyping) {
+                return 'typing...';
+            }
+
             if (conversation.lastMessage) {
                 return formatMessagePreview(conversation.lastMessage);
             }
@@ -1006,6 +1092,10 @@
                 subtitleParts.push('Group chat');
             }
 
+            if (conversation.isTyping) {
+                subtitleParts.push('Typing…');
+            }
+
             chatThreadSubtitleEl.textContent = subtitleParts.join(' • ');
 
             renderMessageThread(conversation);
@@ -1016,19 +1106,32 @@
             chatMessagesContainerEl.classList.remove('hidden');
             chatMessagesContainerEl.innerHTML = '';
 
-            if (!conversation.messages.length) {
+            const hasMessages = conversation.messages.length > 0;
+
+            if (!hasMessages) {
                 const emptyState = document.createElement('div');
                 emptyState.className = 'text-sm text-gray-400 text-center py-12';
                 emptyState.textContent = conversation.isGroup
                     ? 'No messages yet. Say hello to start this group conversation.'
                     : 'No messages yet in this chat.';
                 chatMessagesContainerEl.appendChild(emptyState);
-                return;
+            } else {
+                conversation.messages.forEach((message) => {
+                    chatMessagesContainerEl.appendChild(createMessageRow(message, conversation));
+                });
             }
 
-            conversation.messages.forEach((message) => {
-                chatMessagesContainerEl.appendChild(createMessageRow(message, conversation));
-            });
+            if (conversation.isTyping) {
+                const typingRow = document.createElement('div');
+                typingRow.className = 'flex justify-start mt-2';
+
+                const typingBubble = document.createElement('div');
+                typingBubble.className = 'inline-flex items-center bg-gray-800/90 text-gray-100 rounded-2xl rounded-bl-md px-4 py-2 shadow';
+                typingBubble.appendChild(createTypingIndicatorElement());
+
+                typingRow.appendChild(typingBubble);
+                chatMessagesContainerEl.appendChild(typingRow);
+            }
 
             scrollMessagesToBottom();
         }
@@ -1060,6 +1163,25 @@
 
             row.appendChild(bubble);
             return row;
+        }
+
+        function createTypingIndicatorElement(options = {}) {
+            const { compact = false } = options;
+            const indicator = document.createElement('div');
+            indicator.className = `typing-indicator ${compact ? 'typing-indicator-dark' : ''}`;
+
+            if (compact) {
+                indicator.style.transform = 'scale(0.85)';
+                indicator.style.transformOrigin = 'left center';
+            }
+
+            for (let i = 0; i < 3; i += 1) {
+                const dot = document.createElement('span');
+                dot.className = 'typing-dot';
+                indicator.appendChild(dot);
+            }
+
+            return indicator;
         }
 
         function formatFullTimestamp(value) {

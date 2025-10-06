@@ -9,6 +9,58 @@ const { processIncomingMessage } = require('./messageHandler');
 
 const prisma = new PrismaClient();
 const sessions = new Map();
+const typingStatus = new Map(); // sessionId -> Map(chatId -> { isTyping, updatedAt })
+
+function getSessionTypingMap(sessionId) {
+  if (!typingStatus.has(sessionId)) {
+    typingStatus.set(sessionId, new Map());
+  }
+  return typingStatus.get(sessionId);
+}
+
+function setTypingStatus(sessionId, chatId, isTyping) {
+  const map = getSessionTypingMap(sessionId);
+  if (!chatId) {
+    return;
+  }
+
+  if (isTyping) {
+    map.set(chatId, {
+      isTyping: true,
+      updatedAt: Date.now()
+    });
+  } else {
+    map.set(chatId, {
+      isTyping: false,
+      updatedAt: Date.now()
+    });
+  }
+}
+
+function isChatTyping(sessionId, chatId) {
+  const map = typingStatus.get(sessionId);
+  if (!map) {
+    return false;
+  }
+
+  const record = map.get(chatId);
+  if (!record) {
+    return false;
+  }
+
+  const age = Date.now() - record.updatedAt;
+
+  if (age > 15000 && record.isTyping) {
+    // Expire stale typing status after 15 seconds
+    map.set(chatId, {
+      isTyping: false,
+      updatedAt: Date.now()
+    });
+    return false;
+  }
+
+  return Boolean(record.isTyping);
+}
 
 async function updateSessionRecord(sessionId, data) {
   try {
@@ -202,6 +254,7 @@ async function initializeSession(sessionId) {
       
       // Remove session from map
       sessions.delete(sessionId);
+      typingStatus.delete(sessionId);
     });
 
     client.on('disconnected', async (reason) => {
@@ -214,6 +267,7 @@ async function initializeSession(sessionId) {
       
       // Remove session from map
       sessions.delete(sessionId);
+      typingStatus.delete(sessionId);
     });
 
     // Handle incoming messages and detect mentions in groups
@@ -246,6 +300,22 @@ async function initializeSession(sessionId) {
         await processIncomingMessage(sessionId, msg, false);
       } catch (error) {
         logger.error(`Error processing outbound message for session ${sessionId}:`, error);
+      }
+    });
+
+    client.on('typing', (chat) => {
+      try {
+        setTypingStatus(sessionId, chat?.id?._serialized, true);
+      } catch (error) {
+        logger.warn(`Failed to record typing state for session ${sessionId}:`, error);
+      }
+    });
+
+    client.on('stop_typing', (chat) => {
+      try {
+        setTypingStatus(sessionId, chat?.id?._serialized, false);
+      } catch (error) {
+        logger.warn(`Failed to clear typing state for session ${sessionId}:`, error);
       }
     });
 
@@ -310,6 +380,7 @@ async function closeSession(sessionId) {
     
     // Remove session from map
     sessions.delete(sessionId);
+    typingStatus.delete(sessionId);
     
     // Update session status in database
     await prisma.session.update({
@@ -327,6 +398,7 @@ async function closeSession(sessionId) {
     
     // Force remove session from map
     sessions.delete(sessionId);
+    typingStatus.delete(sessionId);
     
     // Update session status in database
     await prisma.session.update({
@@ -407,14 +479,16 @@ async function getSessionChats(sessionId) {
   return chats
     .map((chat) => {
       const lastMessageSummary = extractLastMessageSummary(chat);
+      const chatId = chat.id?._serialized;
 
       return {
-        id: chat.id._serialized,
+        id: chatId,
         name: normalizeChatName(chat),
         isGroup: Boolean(chat.isGroup),
         unreadCount: Number.isFinite(chat.unreadCount) ? chat.unreadCount : 0,
         isMuted: Boolean(chat.isMuted),
         isArchived: Boolean(chat.archive),
+        isTyping: isChatTyping(sessionId, chatId),
         lastMessagePreview: lastMessageSummary.preview,
         lastMessageTimestamp: lastMessageSummary.timestamp,
         lastMessageFromMe: lastMessageSummary.fromMe

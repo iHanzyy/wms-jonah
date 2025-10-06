@@ -7,6 +7,7 @@ const { MessageMedia } = require('whatsapp-web.js');
 const logger = require('../utils/logger');
 
 const prisma = new PrismaClient();
+const DEFAULT_TYPING_DURATION_MS = 1200;
 
 /**
  * Process an incoming WhatsApp message
@@ -90,11 +91,37 @@ async function processIncomingMessage(sessionId, msg, isMention = false) {
     };
 
     // Save message to database
-    const savedMessage = await prisma.message.create({
-      data: messageData
-    });
+    let savedMessage;
+    try {
+      savedMessage = await prisma.message.create({
+        data: messageData
+      });
+    } catch (createError) {
+      if (createError?.code === 'P2002') {
+        logger.warn(
+          `Duplicate message detected for session ${sessionId}, message ${msg.id.id}; returning existing record`
+        );
 
-    logger.info(`Message ${savedMessage.id} saved for session ${sessionId}`);
+        savedMessage = await prisma.message.findUnique({
+          where: {
+            sessionId_messageId: {
+              sessionId,
+              messageId: msg.id.id
+            }
+          }
+        });
+
+        if (!savedMessage) {
+          throw createError;
+        }
+      } else {
+        throw createError;
+      }
+    }
+
+    if (savedMessage && savedMessage.id) {
+      logger.info(`Message ${savedMessage.id} saved for session ${sessionId}`);
+    }
 
     // Process media if present
     let media = null;
@@ -368,6 +395,27 @@ async function sendMessage(sessionId, to, content, options = {}) {
     let outboundContent = typeof content === 'string' ? content : '';
     let msg;
 
+    let chatInstance = null;
+    try {
+      chatInstance = await session.client.getChatById(chatId);
+    } catch (error) {
+      logger.warn(`Unable to load chat ${chatId} before sending message:`, error);
+    }
+
+    if (chatInstance) {
+      try {
+        await chatInstance.sendStateTyping();
+        const typingDelay = typeof options.typingDuration === 'number'
+          ? Math.max(0, Math.min(options.typingDuration, 5000))
+          : DEFAULT_TYPING_DURATION_MS;
+        if (typingDelay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, typingDelay));
+        }
+      } catch (error) {
+        logger.warn(`Unable to send typing state for chat ${chatId}:`, error);
+      }
+    }
+
     if (mediaOptions) {
       const {
         type,
@@ -417,13 +465,15 @@ async function sendMessage(sessionId, to, content, options = {}) {
       msg = await session.client.sendMessage(chatId, outboundContent);
     }
 
-    let chat = null;
+    let chat = chatInstance;
     let contact = null;
 
-    try {
-      chat = await msg.getChat();
-    } catch (error) {
-      logger.warn(`Unable to load chat info for outbound message ${msg.id.id}:`, error);
+    if (!chat) {
+      try {
+        chat = await msg.getChat();
+      } catch (error) {
+        logger.warn(`Unable to load chat info for outbound message ${msg.id.id}:`, error);
+      }
     }
 
     try {
